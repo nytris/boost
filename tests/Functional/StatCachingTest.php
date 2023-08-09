@@ -22,11 +22,11 @@ use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
 /**
- * Class RealpathCachingTest.
+ * Class StatCachingTest.
  *
  * @author Dan Phillimore <dan@ovms.co>
  */
-class RealpathCachingTest extends AbstractTestCase
+class StatCachingTest extends AbstractTestCase
 {
     /**
      * @var (MockInterface&CacheItemPoolInterface)|null
@@ -72,21 +72,29 @@ class RealpathCachingTest extends AbstractTestCase
         $this->codeShift->uninstall();
     }
 
-    public function testRealpathCacheCanEmulateNonExistentFiles(): void
+    public function testStatCacheCanRepointAPathToADifferentInode(): void
     {
         $actualPath = __DIR__ . '/Fixtures/my_actual_file.php';
         $imaginaryPath = __DIR__ . '/Fixtures/my_imaginary_file.php';
+        $actualPathStat = stat($actualPath);
         $this->realpathCacheItem->allows()
             ->get()
             ->andReturn([
                 $imaginaryPath => [
-                    'realpath' => $actualPath,
+                    // Unlike the test above, the realpath cache has the imaginary path as the target.
+                    'realpath' => $imaginaryPath,
                 ]
+            ]);
+        $this->statCacheItem->allows()
+            ->get()
+            ->andReturn([
+                $imaginaryPath => $actualPathStat,
             ]);
         $this->codeShift->shift(new FsCacheShiftSpec($this->codeShift, $this->cachePool, '__test_'));
 
-        $result = include $imaginaryPath;
-
-        static::assertSame('my imaginary result', $result);
+        static::assertEquals(stat($imaginaryPath), $actualPathStat);
+        static::assertTrue(file_exists($imaginaryPath));
+        static::assertTrue(is_file($imaginaryPath));
+        static::assertFalse(is_dir($imaginaryPath));
     }
 }
