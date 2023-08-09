@@ -21,8 +21,8 @@ use Psr\Cache\CacheItemPoolInterface;
 /**
  * Class FsCachingStreamHandler.
  *
- * TODO: Allow realpath/stat caches to themselves be persisted to disk, so future requests
- *       including those from other processes can benefit.
+ * Caches realpath and filesystem stats, optionally also to a PSR cache implementation,
+ * to improve performance.
  *
  * @author Dan Phillimore <dan@ovms.co>
  */
