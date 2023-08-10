@@ -13,10 +13,8 @@ declare(strict_types=1);
 
 namespace Nytris\Boost\Tests\Functional;
 
-use Asmblah\PhpCodeShift\CodeShift;
 use Mockery\MockInterface;
-use Nytris\Boost\Shift\FsCache\FsCacheShiftSpec;
-use Nytris\Boost\Shift\FsCache\FsCacheShiftType;
+use Nytris\Boost\Boost;
 use Nytris\Boost\Tests\AbstractTestCase;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
@@ -28,11 +26,11 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 class StatCachingTest extends AbstractTestCase
 {
+    private ?Boost $boost;
     /**
      * @var (MockInterface&CacheItemPoolInterface)|null
      */
     private $cachePool;
-    private ?CodeShift $codeShift;
     /**
      * @var (MockInterface&CacheItemInterface)|null
      */
@@ -58,8 +56,7 @@ class StatCachingTest extends AbstractTestCase
             'set' => null,
         ]);
 
-        $this->codeShift = new CodeShift();
-        $this->codeShift->registerShiftType(new FsCacheShiftType());
+        $this->boost = new Boost(cachePool: $this->cachePool, cachePrefix: '__test_');
 
         $this->cachePool->allows()
             ->getItem('__test_realpath_cache')
@@ -71,7 +68,7 @@ class StatCachingTest extends AbstractTestCase
 
     public function tearDown(): void
     {
-        $this->codeShift->uninstall();
+        $this->boost->uninstall();
     }
 
     public function testStatCacheCanRepointAPathToADifferentInode(): void
@@ -92,7 +89,7 @@ class StatCachingTest extends AbstractTestCase
             ->andReturn([
                 $imaginaryPath => $actualPathStat,
             ]);
-        $this->codeShift->shift(new FsCacheShiftSpec($this->codeShift, $this->cachePool, '__test_'));
+        $this->boost->install();
 
         static::assertEquals(stat($imaginaryPath), $actualPathStat);
         static::assertTrue(file_exists($imaginaryPath));

@@ -12,12 +12,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/asmblah/php-code-shift.git",
-                "reference": "cc4c6ff3fc2c5effe05e5b54be457b3e74e0e882"
+                "reference": "390f27f65445c4d18fedde829c89a48a5a16dc01"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/asmblah/php-code-shift/zipball/cc4c6ff3fc2c5effe05e5b54be457b3e74e0e882",
-                "reference": "cc4c6ff3fc2c5effe05e5b54be457b3e74e0e882",
+                "url": "https://api.github.com/repos/asmblah/php-code-shift/zipball/390f27f65445c4d18fedde829c89a48a5a16dc01",
+                "reference": "390f27f65445c4d18fedde829c89a48a5a16dc01",
                 "shasum": ""
             },
             "require": {
@@ -46,7 +46,7 @@
                 "issues": "https://github.com/asmblah/php-code-shift/issues",
                 "source": "https://github.com/asmblah/php-code-shift/tree/main"
             },
-            "time": "2023-08-10T16:46:50+00:00"
+            "time": "2023-08-10T19:33:48+00:00"
         },
         {
             "name": "nikic/php-parser",

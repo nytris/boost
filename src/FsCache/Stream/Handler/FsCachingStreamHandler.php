@@ -11,7 +11,7 @@
 
 declare(strict_types=1);
 
-namespace Nytris\Boost\Shift\FsCache\Stream\Handler;
+namespace Nytris\Boost\FsCache\Stream\Handler;
 
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\AbstractStreamHandlerDecorator;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
@@ -30,8 +30,8 @@ use Psr\Cache\CacheItemPoolInterface;
 class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 {
     private array $realpathCache;
-    private ?CacheItemInterface $realpathCachePoolItem;
-    private ?CacheItemInterface $statCachePoolItem;
+    private ?CacheItemInterface $realpathCachePoolItem = null;
+    private ?CacheItemInterface $statCachePoolItem = null;
     private array $statCache;
 
     public function __construct(
