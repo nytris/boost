@@ -230,9 +230,9 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         ?string &$openedPath
     ) {
         // TODO?
-        $realpath = $this->getRealpath($path);
+        $effectivePath = $this->getRealpath($path) ?? $path;
 
-        return $this->wrappedStreamHandler->streamOpen($context, $realpath, $mode, $options, $openedPath);
+        return $this->wrappedStreamHandler->streamOpen($context, $effectivePath, $mode, $options, $openedPath);
     }
 
     /**
