@@ -15,6 +15,7 @@ namespace Nytris\Boost\Shift\FsCache\Stream\Handler;
 
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\AbstractStreamHandlerDecorator;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
+use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -28,7 +29,6 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 {
-    private int $nextKey = 0;
     private array $realpathCache;
     private ?CacheItemInterface $realpathCachePoolItem;
     private ?CacheItemInterface $statCachePoolItem;
@@ -49,6 +49,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
             return;
         }
 
+        // Load the realpath and stat caches from the PSR cache.
         $this->realpathCachePoolItem = $this->cachePool->getItem($this->cachePrefix . 'realpath_cache');
         $this->statCachePoolItem = $this->cachePool->getItem($this->cachePrefix . 'stat_cache');
 
@@ -56,17 +57,30 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
             $this->realpathCache = $this->realpathCachePoolItem->get();
         } else {
             $this->realpathCache = [];
-            $this->realpathCachePoolItem->set([]);
-            $this->cachePool->save($this->realpathCachePoolItem);
+
+            $this->persistRealpathCache();
         }
 
         if ($this->statCachePoolItem->isHit()) {
             $this->statCache = $this->statCachePoolItem->get();
         } else {
             $this->statCache = [];
-            $this->statCachePoolItem->set([]);
-            $this->cachePool->save($this->statCachePoolItem);
+
+            $this->persistStatCache();
         }
+    }
+
+    /**
+     * Caches the fact that a path does not exist in the realpath cache,
+     * to optimise future lookups for the same path.
+     */
+    public function cacheNonExistentPath(string $path): void
+    {
+        $this->realpathCache[$path] = [
+            'exists' => false,
+        ];
+
+        $this->persistRealpathCache();
     }
 
     /**
@@ -95,20 +109,10 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     public function cacheRealpathSegment(string $path, string $realPath, bool $isDirectory): void
     {
         $this->realpathCache[$path] = [
-            'key' => $this->nextKey++,
             'is_dir' => $isDirectory,
             'realpath' => $realPath,
             'expires' => 0, // FIXME.
         ];
-    }
-
-    public function clearCaches(): void
-    {
-        $this->realpathCache = [];
-        $this->statCache = [];
-
-        $this->persistRealpathCache();
-        $this->persistStatCache();
     }
 
     /**
@@ -119,12 +123,24 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     {
         $entry = $this->getRealpathCacheEntry($path);
 
-        $realpath = $entry !== null ? $entry['realpath'] : null;
+        if ($entry !== null) {
+            $exists = $entry['exists'] ?? true;
+
+            if (!$exists) {
+                return null; // File has been cached as non-existent.
+            }
+
+            $realpath = $entry['realpath'];
+        } else {
+            $realpath = null;
+        }
 
         if ($realpath === null) {
             $realpath = realpath($path);
 
             if ($realpath === false) {
+                $this->cacheNonExistentPath($path);
+
                 return null; // File does not exist or is inaccessible.
             }
 
@@ -154,13 +170,25 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     }
 
     /**
+     * Clears both the realpath and stat caches.
+     */
+    public function invalidateCaches(): void
+    {
+        $this->realpathCache = [];
+        $this->statCache = [];
+
+        $this->persistRealpathCache();
+        $this->persistStatCache();
+    }
+
+    /**
      * @inheritDoc
      */
-    public function mkdir($context, string $path, int $mode, int $options): bool
+    public function mkdir(StreamWrapperInterface $streamWrapper, string $path, int $mode, int $options): bool
     {
         // TODO?
 
-        return $this->wrappedStreamHandler->mkdir($context, $path, $mode, $options);
+        return $this->wrappedStreamHandler->mkdir($streamWrapper, $path, $mode, $options);
     }
 
     /**
@@ -173,7 +201,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         }
 
         $this->realpathCachePoolItem->set($this->realpathCache);
-        $this->cachePool->save($this->realpathCachePoolItem);
+        $this->cachePool->saveDeferred($this->realpathCachePoolItem);
     }
 
     /**
@@ -186,27 +214,27 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         }
 
         $this->statCachePoolItem->set($this->statCache);
-        $this->cachePool->save($this->statCachePoolItem);
+        $this->cachePool->saveDeferred($this->statCachePoolItem);
     }
 
     /**
      * @inheritDoc
      */
-    public function rename($context, string $fromPath, string $toPath): bool
+    public function rename(StreamWrapperInterface $streamWrapper, string $fromPath, string $toPath): bool
     {
         // TODO?
 
-        return $this->wrappedStreamHandler->rename($context, $fromPath, $toPath);
+        return $this->wrappedStreamHandler->rename($streamWrapper, $fromPath, $toPath);
     }
 
     /**
      * @inheritDoc
      */
-    public function rmdir($context, string $path, int $options): bool
+    public function rmdir(StreamWrapperInterface $streamWrapper, string $path, int $options): bool
     {
         // TODO?
 
-        return $this->wrappedStreamHandler->rmdir($context, $path, $options);
+        return $this->wrappedStreamHandler->rmdir($streamWrapper, $path, $options);
     }
 
     /**
@@ -223,36 +251,62 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
      * @inheritDoc
      */
     public function streamOpen(
-        $context,
+        StreamWrapperInterface $streamWrapper,
         string $path,
         string $mode,
         int $options,
         ?string &$openedPath
     ) {
         // TODO?
-        $effectivePath = $this->getRealpath($path) ?? $path;
+        $effectivePath = $this->getRealpath($path) ?? null;
 
-        return $this->wrappedStreamHandler->streamOpen($context, $effectivePath, $mode, $options, $openedPath);
+        if ($effectivePath === null) {
+            return null;
+        }
+
+        return $this->wrappedStreamHandler->streamOpen($streamWrapper, $effectivePath, $mode, $options, $openedPath);
     }
 
     /**
      * @inheritDoc
      */
-    public function streamStat($wrappedResource): array|false
+    public function streamStat(StreamWrapperInterface $streamWrapper): array|false
     {
         // TODO?
+        $path = $streamWrapper->getOpenPath();
+        $realpath = $this->getRealpath($path);
 
-        return $this->wrappedStreamHandler->streamStat($wrappedResource);
+        if ($realpath === null) {
+            return false;
+        }
+
+        if (array_key_exists($realpath, $this->statCache)) {
+            // Stat is already cached: just return it.
+            return $this->statCache[$realpath];
+        }
+
+        $stat = $this->wrappedStreamHandler->streamStat($streamWrapper);
+
+        if ($stat === false) {
+            // Stat failed.
+            return false;
+        }
+
+        // Cache stat for future reference.
+        $this->statCache[$realpath] = $stat;
+        $this->persistStatCache();
+
+        return $stat;
     }
 
     /**
      * @inheritDoc
      */
-    public function unlink($context, string $path): bool
+    public function unlink(StreamWrapperInterface $streamWrapper, string $path): bool
     {
         // TODO.
 
-        return $this->wrappedStreamHandler->unlink($context, $path);
+        return $this->wrappedStreamHandler->unlink($streamWrapper, $path);
     }
 
     /**

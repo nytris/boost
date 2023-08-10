@@ -44,7 +44,9 @@ class StatCachingTest extends AbstractTestCase
 
     public function setUp(): void
     {
-        $this->cachePool = mock(CacheItemPoolInterface::class);
+        $this->cachePool = mock(CacheItemPoolInterface::class, [
+            'saveDeferred' => null,
+        ]);
         $this->realpathCacheItem = mock(CacheItemInterface::class, [
             'get' => [],
             'isHit' => true,

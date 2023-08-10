@@ -59,7 +59,7 @@ class FsCacheShiftSpec implements ShiftSpecInterface
             new FunctionHookShiftSpec(
                 'clearstatcache',
                 fn ($original) => function () use ($fsCachingStreamHandler, $original): void {
-                    $fsCachingStreamHandler->clearCaches();
+                    $fsCachingStreamHandler->invalidateCaches();
                 }
             )
         );

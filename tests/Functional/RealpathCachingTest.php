@@ -44,7 +44,9 @@ class RealpathCachingTest extends AbstractTestCase
 
     public function setUp(): void
     {
-        $this->cachePool = mock(CacheItemPoolInterface::class);
+        $this->cachePool = mock(CacheItemPoolInterface::class, [
+            'saveDeferred' => null,
+        ]);
         $this->realpathCacheItem = mock(CacheItemInterface::class, [
             'get' => [],
             'isHit' => true,
@@ -88,5 +90,22 @@ class RealpathCachingTest extends AbstractTestCase
         $result = include $imaginaryPath;
 
         static::assertSame('my imaginary result', $result);
+    }
+
+    public function testRealpathCacheCanPretendAnActualFileDoesNotExist(): void
+    {
+        $actualPath = __DIR__ . '/Fixtures/my_actual_file.php';
+        $this->realpathCacheItem->allows()
+            ->get()
+            ->andReturn([
+                $actualPath => [
+                    'exists' => false,
+                ]
+            ]);
+        $this->codeShift->shift(new FsCacheShiftSpec($this->codeShift, $this->cachePool, '__test_'));
+
+        static::assertFalse(file_exists($actualPath));
+        static::assertFalse(is_file($actualPath));
+        static::assertFalse(is_dir($actualPath));
     }
 }
