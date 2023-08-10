@@ -41,7 +41,11 @@ class Boost implements BoostInterface
         ?CacheItemPoolInterface $realpathCachePool = null,
         ?CacheItemPoolInterface $statCachePool = null,
         string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
-        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY
+        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
+        /**
+         * Whether to hook built-in functions such as clearstatcache(...).
+         */
+        bool $hookBuiltinFunctions = true
     ) {
         $this->codeShift = $codeShift ?? new CodeShift();
         $this->fsCache = $fsCache ?? new FsCache(
@@ -49,7 +53,8 @@ class Boost implements BoostInterface
             $realpathCachePool,
             $statCachePool,
             $realpathCacheKey,
-            $statCacheKey
+            $statCacheKey,
+            $hookBuiltinFunctions
         );
     }
 

@@ -40,7 +40,11 @@ class FsCache implements FsCacheInterface
         private readonly ?CacheItemPoolInterface $realpathCachePool = null,
         private readonly ?CacheItemPoolInterface $statCachePool = null,
         private readonly string $realpathCacheKey = self::DEFAULT_REALPATH_CACHE_KEY,
-        private readonly string $statCacheKey = self::DEFAULT_STAT_CACHE_KEY
+        private readonly string $statCacheKey = self::DEFAULT_STAT_CACHE_KEY,
+        /**
+         * Whether to hook built-in functions such as clearstatcache(...).
+         */
+        private readonly bool $hookBuiltinFunctions = true
     ) {
     }
 
@@ -59,16 +63,18 @@ class FsCache implements FsCacheInterface
             $this->statCacheKey
         );
 
-        // Hook the clearstatcache() function and simply have it fully clear both caches for now.
-        // TODO: Implement parameters.
-        $this->codeShift->shift(
-            new FunctionHookShiftSpec(
-                'clearstatcache',
-                fn ($original) => function () use ($fsCachingStreamHandler, $original): void {
-                    $fsCachingStreamHandler->invalidateCaches();
-                }
-            )
-        );
+        if ($this->hookBuiltinFunctions) {
+            // Hook the clearstatcache() function and simply have it fully clear both caches for now.
+            // TODO: Implement parameters.
+            $this->codeShift->shift(
+                new FunctionHookShiftSpec(
+                    'clearstatcache',
+                    fn($original) => function () use ($fsCachingStreamHandler, $original): void {
+                        $fsCachingStreamHandler->invalidateCaches();
+                    }
+                )
+            );
+        }
 
         StreamWrapperManager::setStreamHandler($fsCachingStreamHandler);
     }
