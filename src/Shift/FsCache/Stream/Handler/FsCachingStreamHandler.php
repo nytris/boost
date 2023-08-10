@@ -57,6 +57,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         } else {
             $this->realpathCache = [];
             $this->realpathCachePoolItem->set([]);
+            $this->cachePool->save($this->realpathCachePoolItem);
         }
 
         if ($this->statCachePoolItem->isHit()) {
@@ -64,6 +65,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         } else {
             $this->statCache = [];
             $this->statCachePoolItem->set([]);
+            $this->cachePool->save($this->statCachePoolItem);
         }
     }
 
@@ -171,6 +173,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         }
 
         $this->realpathCachePoolItem->set($this->realpathCache);
+        $this->cachePool->save($this->realpathCachePoolItem);
     }
 
     /**
@@ -183,6 +186,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         }
 
         $this->statCachePoolItem->set($this->statCache);
+        $this->cachePool->save($this->statCachePoolItem);
     }
 
     /**
