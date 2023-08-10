@@ -37,8 +37,10 @@ class FsCache implements FsCacheInterface
          * Set to null to disable PSR cache persistence.
          * Caches will still be maintained for the life of the request/CLI process.
          */
-        private readonly ?CacheItemPoolInterface $cachePool = null,
-        private readonly string $cachePrefix = self::DEFAULT_CACHE_PREFIX
+        private readonly ?CacheItemPoolInterface $realpathCachePool = null,
+        private readonly ?CacheItemPoolInterface $statCachePool = null,
+        private readonly string $realpathCacheKey = self::DEFAULT_REALPATH_CACHE_KEY,
+        private readonly string $statCacheKey = self::DEFAULT_STAT_CACHE_KEY
     ) {
     }
 
@@ -51,8 +53,10 @@ class FsCache implements FsCacheInterface
 
         $fsCachingStreamHandler = new FsCachingStreamHandler(
             $this->originalStreamHandler,
-            $this->cachePool,
-            $this->cachePrefix
+            $this->realpathCachePool,
+            $this->statCachePool,
+            $this->realpathCacheKey,
+            $this->statCacheKey
         );
 
         // Hook the clearstatcache() function and simply have it fully clear both caches for now.

@@ -16,6 +16,7 @@ namespace Nytris\Boost\FsCache\Stream\Handler;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\AbstractStreamHandlerDecorator;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
+use Nytris\Boost\FsCache\FsCacheInterface;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -29,44 +30,35 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 {
-    private array $realpathCache;
+    private array $realpathCache = [];
     private ?CacheItemInterface $realpathCachePoolItem = null;
+    private array $statCache = [];
     private ?CacheItemInterface $statCachePoolItem = null;
-    private array $statCache;
 
     public function __construct(
         StreamHandlerInterface $wrappedStreamHandler,
-        private readonly ?CacheItemPoolInterface $cachePool,
-        private readonly string $cachePrefix
+        private readonly ?CacheItemPoolInterface $realpathCachePool,
+        private readonly ?CacheItemPoolInterface $statCachePool,
+        string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
+        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY
     ) {
         parent::__construct($wrappedStreamHandler);
 
-        if ($this->cachePool === null) {
-            // PSR cache persistence is disabled.
-            $this->realpathCache = [];
-            $this->statCache = [];
+        // Load the realpath and stat caches from the PSR caches if enabled.
+        if ($this->realpathCachePool !== null) {
+            $this->realpathCachePoolItem = $this->realpathCachePool->getItem($realpathCacheKey);
 
-            return;
+            if ($this->realpathCachePoolItem->isHit()) {
+                $this->realpathCache = $this->realpathCachePoolItem->get();
+            }
         }
 
-        // Load the realpath and stat caches from the PSR cache.
-        $this->realpathCachePoolItem = $this->cachePool->getItem($this->cachePrefix . 'realpath_cache');
-        $this->statCachePoolItem = $this->cachePool->getItem($this->cachePrefix . 'stat_cache');
+        if ($this->statCachePool !== null) {
+            $this->statCachePoolItem = $this->statCachePool->getItem($statCacheKey);
 
-        if ($this->realpathCachePoolItem->isHit()) {
-            $this->realpathCache = $this->realpathCachePoolItem->get();
-        } else {
-            $this->realpathCache = [];
-
-            $this->persistRealpathCache();
-        }
-
-        if ($this->statCachePoolItem->isHit()) {
-            $this->statCache = $this->statCachePoolItem->get();
-        } else {
-            $this->statCache = [];
-
-            $this->persistStatCache();
+            if ($this->statCachePoolItem->isHit()) {
+                $this->statCache = $this->statCachePoolItem->get();
+            }
         }
     }
 
@@ -201,7 +193,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         }
 
         $this->realpathCachePoolItem->set($this->realpathCache);
-        $this->cachePool->saveDeferred($this->realpathCachePoolItem);
+        $this->realpathCachePool->saveDeferred($this->realpathCachePoolItem);
     }
 
     /**
@@ -214,7 +206,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         }
 
         $this->statCachePoolItem->set($this->statCache);
-        $this->cachePool->saveDeferred($this->statCachePoolItem);
+        $this->statCachePool->saveDeferred($this->statCachePoolItem);
     }
 
     /**

@@ -28,21 +28,28 @@ class RealpathCachingTest extends AbstractTestCase
 {
     private ?Boost $boost;
     /**
-     * @var (MockInterface&CacheItemPoolInterface)|null
-     */
-    private $cachePool;
-    /**
      * @var (MockInterface&CacheItemInterface)|null
      */
     private $realpathCacheItem;
     /**
+     * @var (MockInterface&CacheItemPoolInterface)|null
+     */
+    private $realpathCachePool;
+    /**
      * @var (MockInterface&CacheItemInterface)|null
      */
     private $statCacheItem;
+    /**
+     * @var (MockInterface&CacheItemPoolInterface)|null
+     */
+    private $statCachePool;
 
     public function setUp(): void
     {
-        $this->cachePool = mock(CacheItemPoolInterface::class, [
+        $this->realpathCachePool = mock(CacheItemPoolInterface::class, [
+            'saveDeferred' => null,
+        ]);
+        $this->statCachePool = mock(CacheItemPoolInterface::class, [
             'saveDeferred' => null,
         ]);
         $this->realpathCacheItem = mock(CacheItemInterface::class, [
@@ -56,13 +63,18 @@ class RealpathCachingTest extends AbstractTestCase
             'set' => null,
         ]);
 
-        $this->boost = new Boost(cachePool: $this->cachePool, cachePrefix: '__test_');
+        $this->boost = new Boost(
+            realpathCachePool: $this->realpathCachePool,
+            statCachePool: $this->statCachePool,
+            realpathCacheKey: '__my_realpath_cache',
+            statCacheKey: '__my_stat_cache'
+        );
 
-        $this->cachePool->allows()
-            ->getItem('__test_realpath_cache')
+        $this->realpathCachePool->allows()
+            ->getItem('__my_realpath_cache')
             ->andReturn($this->realpathCacheItem);
-        $this->cachePool->allows()
-            ->getItem('__test_stat_cache')
+        $this->statCachePool->allows()
+            ->getItem('__my_stat_cache')
             ->andReturn($this->statCacheItem);
     }
 

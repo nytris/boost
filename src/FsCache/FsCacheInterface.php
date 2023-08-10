@@ -22,7 +22,8 @@ namespace Nytris\Boost\FsCache;
  */
 interface FsCacheInterface
 {
-    public const DEFAULT_CACHE_PREFIX = '__nytris_boost_';
+    public const DEFAULT_REALPATH_CACHE_KEY = '__nytris_boost_realpath_cache';
+    public const DEFAULT_STAT_CACHE_KEY = '__nytris_boost_stat_cache';
 
     /**
      * Installs the filesystem cache.

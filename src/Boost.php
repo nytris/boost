@@ -38,11 +38,19 @@ class Boost implements BoostInterface
          * Set to null to disable PSR cache persistence.
          * Caches will still be maintained for the life of the request/CLI process.
          */
-        ?CacheItemPoolInterface $cachePool = null,
-        string $cachePrefix = FsCacheInterface::DEFAULT_CACHE_PREFIX
+        ?CacheItemPoolInterface $realpathCachePool = null,
+        ?CacheItemPoolInterface $statCachePool = null,
+        string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
+        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY
     ) {
         $this->codeShift = $codeShift ?? new CodeShift();
-        $this->fsCache = $fsCache ?? new FsCache($this->codeShift, $cachePool, $cachePrefix);
+        $this->fsCache = $fsCache ?? new FsCache(
+            $this->codeShift,
+            $realpathCachePool,
+            $statCachePool,
+            $realpathCacheKey,
+            $statCacheKey
+        );
     }
 
     /**
