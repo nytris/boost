@@ -63,6 +63,16 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     }
 
     /**
+     * To reduce I/O, defer PSR cache persistence (if enabled) until the stream handler is disposed of
+     * (usually at the end of the request or CLI process).
+     */
+    public function __destruct()
+    {
+        $this->persistRealpathCache();
+        $this->persistStatCache();
+    }
+
+    /**
      * Caches the fact that a path does not exist in the realpath cache,
      * to optimise future lookups for the same path.
      */
@@ -71,8 +81,6 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         $this->realpathCache[$path] = [
             'exists' => false,
         ];
-
-        $this->persistRealpathCache();
     }
 
     /**
@@ -91,8 +99,6 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         }
 
         $this->cacheRealpathSegment($path, $realpath, $isDirectory);
-
-        $this->persistRealpathCache();
     }
 
     /**
@@ -168,9 +174,17 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     {
         $this->realpathCache = [];
         $this->statCache = [];
+    }
 
-        $this->persistRealpathCache();
-        $this->persistStatCache();
+    /**
+     * Clears both the realpath and stat caches for the given path.
+     */
+    public function invalidatePath(string $path): void
+    {
+        $realpath = $this->getRealpath($path) ?? $path;
+
+        unset($this->realpathCache[$realpath]);
+        unset($this->statCache[$realpath]);
     }
 
     /**
@@ -178,7 +192,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
      */
     public function mkdir(StreamWrapperInterface $streamWrapper, string $path, int $mode, int $options): bool
     {
-        // TODO?
+        $this->invalidatePath($path);
 
         return $this->wrappedStreamHandler->mkdir($streamWrapper, $path, $mode, $options);
     }
@@ -214,7 +228,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
      */
     public function rename(StreamWrapperInterface $streamWrapper, string $fromPath, string $toPath): bool
     {
-        // TODO?
+        $this->invalidatePath($fromPath);
+        $this->invalidatePath($toPath);
 
         return $this->wrappedStreamHandler->rename($streamWrapper, $fromPath, $toPath);
     }
@@ -224,7 +239,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
      */
     public function rmdir(StreamWrapperInterface $streamWrapper, string $path, int $options): bool
     {
-        // TODO?
+        $this->invalidatePath($path);
 
         return $this->wrappedStreamHandler->rmdir($streamWrapper, $path, $options);
     }
@@ -234,7 +249,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
      */
     public function streamMetadata(string $path, int $option, mixed $value): bool
     {
-        // TODO?
+        $this->invalidatePath($path);
 
         return $this->wrappedStreamHandler->streamMetadata($path, $option, $value);
     }
@@ -249,11 +264,19 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         int $options,
         ?string &$openedPath
     ) {
-        // TODO?
-        $effectivePath = $this->getRealpath($path) ?? null;
+        $isRead = str_contains($mode, 'r') && !str_contains($mode, '+');
 
-        if ($effectivePath === null) {
-            return null;
+        if ($isRead) {
+            $effectivePath = $this->getRealpath($path);
+
+            if ($effectivePath === null) {
+                return null;
+            }
+        } else {
+            $effectivePath = $path;
+
+            // File is being written to, so clear cache (e.g. in case it was cached as non-existent).
+            $this->invalidatePath($effectivePath);
         }
 
         return $this->wrappedStreamHandler->streamOpen($streamWrapper, $effectivePath, $mode, $options, $openedPath);
@@ -286,7 +309,6 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 
         // Cache stat for future reference.
         $this->statCache[$realpath] = $stat;
-        $this->persistStatCache();
 
         return $stat;
     }
@@ -296,7 +318,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
      */
     public function unlink(StreamWrapperInterface $streamWrapper, string $path): bool
     {
-        // TODO.
+        $this->invalidatePath($path);
 
         return $this->wrappedStreamHandler->unlink($streamWrapper, $path);
     }
@@ -330,7 +352,6 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 
         // Cache stat for future reference.
         $this->statCache[$realpath] = $stat;
-        $this->persistStatCache();
 
         return $stat;
     }
