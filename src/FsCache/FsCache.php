@@ -47,15 +47,13 @@ class FsCache implements FsCacheInterface
          */
         private readonly bool $hookBuiltinFunctions = true
     ) {
-    }
-
-    /**
-     * To reduce I/O, defer PSR cache persistence (if enabled) until we are disposed of
-     * (usually at the end of the request or CLI process).
-     */
-    public function __destruct()
-    {
-        $this->persistCaches();
+        /**
+         * To reduce I/O, defer PSR cache persistence (if enabled)
+         * until the end of the request or CLI process.
+         */
+        register_shutdown_function(function () {
+            $this->persistCaches();
+        });
     }
 
     /**
