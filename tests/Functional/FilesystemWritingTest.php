@@ -15,7 +15,6 @@ namespace Nytris\Boost\Tests\Functional;
 
 use Mockery\MockInterface;
 use Nytris\Boost\Boost;
-use Nytris\Boost\Tests\AbstractTestCase;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -24,7 +23,7 @@ use Psr\Cache\CacheItemPoolInterface;
  *
  * @author Dan Phillimore <dan@ovms.co>
  */
-class FilesystemWritingTest extends AbstractTestCase
+class FilesystemWritingTest extends AbstractFunctionalTestCase
 {
     private ?Boost $boost;
     /**
@@ -87,19 +86,6 @@ class FilesystemWritingTest extends AbstractTestCase
         $this->boost->uninstall();
 
         $this->rimrafDescendantsOf($this->varPath);
-    }
-
-    private function rimrafDescendantsOf(string $path): void
-    {
-        foreach (glob($path . '/**') as $subPath) {
-            if (is_file($subPath)) {
-                unlink($subPath);
-            } else {
-                $this->rimrafDescendantsOf($subPath);
-
-                rmdir($subPath);
-            }
-        }
     }
 
     public function testWritesToUncachedFilesShouldBeHandledCorrectly(): void

@@ -31,8 +31,10 @@ use Psr\Cache\CacheItemPoolInterface;
 class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 {
     private array $realpathCache = [];
+    private bool $realpathCacheIsDirty = false;
     private ?CacheItemInterface $realpathCachePoolItem = null;
     private array $statCache = [];
+    private bool $statCacheIsDirty = false;
     private ?CacheItemInterface $statCachePoolItem = null;
 
     public function __construct(
@@ -63,16 +65,6 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     }
 
     /**
-     * To reduce I/O, defer PSR cache persistence (if enabled) until the stream handler is disposed of
-     * (usually at the end of the request or CLI process).
-     */
-    public function __destruct()
-    {
-        $this->persistRealpathCache();
-        $this->persistStatCache();
-    }
-
-    /**
      * Caches the fact that a path does not exist in the realpath cache,
      * to optimise future lookups for the same path.
      */
@@ -81,6 +73,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         $this->realpathCache[$path] = [
             'exists' => false,
         ];
+
+        $this->realpathCacheIsDirty = true;
     }
 
     /**
@@ -111,6 +105,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
             'realpath' => $realPath,
             'expires' => 0, // FIXME.
         ];
+
+        $this->realpathCacheIsDirty = true;
     }
 
     /**
@@ -185,6 +181,9 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 
         unset($this->realpathCache[$realpath]);
         unset($this->statCache[$realpath]);
+
+        $this->realpathCacheIsDirty = true;
+        $this->statCacheIsDirty = true;
     }
 
     /**
@@ -202,8 +201,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
      */
     public function persistRealpathCache(): void
     {
-        if ($this->realpathCachePoolItem === null) {
-            return; // Persistence is disabled; nothing to do.
+        if ($this->realpathCachePoolItem === null || $this->realpathCacheIsDirty === false) {
+            return; // Persistence is disabled or nothing changed; nothing to do.
         }
 
         $this->realpathCachePoolItem->set($this->realpathCache);
@@ -215,8 +214,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
      */
     public function persistStatCache(): void
     {
-        if ($this->statCachePoolItem === null) {
-            return; // Persistence is disabled; nothing to do.
+        if ($this->statCachePoolItem === null || $this->statCacheIsDirty === false) {
+            return; // Persistence is disabled or nothing changed; nothing to do.
         }
 
         $this->statCachePoolItem->set($this->statCache);
@@ -309,6 +308,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 
         // Cache stat for future reference.
         $this->statCache[$realpath] = $stat;
+        $this->statCacheIsDirty = true;
 
         return $stat;
     }
@@ -352,6 +352,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 
         // Cache stat for future reference.
         $this->statCache[$realpath] = $stat;
+        $this->statCacheIsDirty = true;
 
         return $stat;
     }

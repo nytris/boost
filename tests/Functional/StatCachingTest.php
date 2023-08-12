@@ -15,7 +15,6 @@ namespace Nytris\Boost\Tests\Functional;
 
 use Mockery\MockInterface;
 use Nytris\Boost\Boost;
-use Nytris\Boost\Tests\AbstractTestCase;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -24,7 +23,7 @@ use Psr\Cache\CacheItemPoolInterface;
  *
  * @author Dan Phillimore <dan@ovms.co>
  */
-class StatCachingTest extends AbstractTestCase
+class StatCachingTest extends AbstractFunctionalTestCase
 {
     private ?Boost $boost;
     /**
@@ -43,6 +42,7 @@ class StatCachingTest extends AbstractTestCase
      * @var (MockInterface&CacheItemPoolInterface)|null
      */
     private $statCachePool;
+    private ?string $varPath;
 
     public function setUp(): void
     {
@@ -63,6 +63,9 @@ class StatCachingTest extends AbstractTestCase
             'set' => null,
         ]);
 
+        $this->varPath = __DIR__ . '/../../var';
+        @mkdir($this->varPath, recursive: true);
+
         $this->boost = new Boost(
             realpathCachePool: $this->realpathCachePool,
             statCachePool: $this->statCachePool,
@@ -81,6 +84,8 @@ class StatCachingTest extends AbstractTestCase
     public function tearDown(): void
     {
         $this->boost->uninstall();
+
+        $this->rimrafDescendantsOf($this->varPath);
     }
 
     public function testStatCacheCanRepointAPathToADifferentInode(): void
@@ -107,5 +112,26 @@ class StatCachingTest extends AbstractTestCase
         static::assertTrue(file_exists($imaginaryPath));
         static::assertTrue(is_file($imaginaryPath));
         static::assertFalse(is_dir($imaginaryPath));
+    }
+
+    public function testStatCacheIsPersistedOnDestructionWhenChangesMade(): void
+    {
+        $this->statCachePool->expects()
+            ->saveDeferred($this->statCacheItem)
+            ->once();
+
+        $this->boost->install();
+        file_put_contents($this->varPath . '/my_file.txt', 'my contents');
+        $this->boost->uninstall();
+    }
+
+    public function testStatCacheIsNotPersistedOnDestructionWhenNoChangesMade(): void
+    {
+        $this->statCachePool->expects()
+            ->saveDeferred($this->statCacheItem)
+            ->never();
+
+        $this->boost->install();
+        $this->boost->uninstall();
     }
 }

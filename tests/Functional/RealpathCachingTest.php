@@ -15,7 +15,6 @@ namespace Nytris\Boost\Tests\Functional;
 
 use Mockery\MockInterface;
 use Nytris\Boost\Boost;
-use Nytris\Boost\Tests\AbstractTestCase;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -24,7 +23,7 @@ use Psr\Cache\CacheItemPoolInterface;
  *
  * @author Dan Phillimore <dan@ovms.co>
  */
-class RealpathCachingTest extends AbstractTestCase
+class RealpathCachingTest extends AbstractFunctionalTestCase
 {
     private ?Boost $boost;
     /**
@@ -43,6 +42,7 @@ class RealpathCachingTest extends AbstractTestCase
      * @var (MockInterface&CacheItemPoolInterface)|null
      */
     private $statCachePool;
+    private ?string $varPath;
 
     public function setUp(): void
     {
@@ -63,6 +63,9 @@ class RealpathCachingTest extends AbstractTestCase
             'set' => null,
         ]);
 
+        $this->varPath = __DIR__ . '/../../var';
+        @mkdir($this->varPath, recursive: true);
+
         $this->boost = new Boost(
             realpathCachePool: $this->realpathCachePool,
             statCachePool: $this->statCachePool,
@@ -81,6 +84,8 @@ class RealpathCachingTest extends AbstractTestCase
     public function tearDown(): void
     {
         $this->boost->uninstall();
+
+        $this->rimrafDescendantsOf($this->varPath);
     }
 
     public function testRealpathCacheCanEmulateNonExistentFiles(): void
@@ -116,5 +121,26 @@ class RealpathCachingTest extends AbstractTestCase
         static::assertFalse(file_exists($actualPath));
         static::assertFalse(is_file($actualPath));
         static::assertFalse(is_dir($actualPath));
+    }
+
+    public function testRealpathCacheIsPersistedOnDestructionWhenChangesMade(): void
+    {
+        $this->realpathCachePool->expects()
+            ->saveDeferred($this->realpathCacheItem)
+            ->once();
+
+        $this->boost->install();
+        file_put_contents($this->varPath . '/my_file.txt', 'my contents');
+        $this->boost->uninstall();
+    }
+
+    public function testRealpathCacheIsNotPersistedOnDestructionWhenNoChangesMade(): void
+    {
+        $this->realpathCachePool->expects()
+            ->saveDeferred($this->realpathCacheItem)
+            ->never();
+
+        $this->boost->install();
+        $this->boost->uninstall();
     }
 }

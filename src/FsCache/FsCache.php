@@ -29,6 +29,7 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 class FsCache implements FsCacheInterface
 {
+    private ?FsCachingStreamHandler $fsCachingStreamHandler;
     private ?StreamHandlerInterface $originalStreamHandler;
 
     public function __construct(
@@ -49,13 +50,22 @@ class FsCache implements FsCacheInterface
     }
 
     /**
+     * To reduce I/O, defer PSR cache persistence (if enabled) until we are disposed of
+     * (usually at the end of the request or CLI process).
+     */
+    public function __destruct()
+    {
+        $this->persistCaches();
+    }
+
+    /**
      * @inheritDoc
      */
     public function install(): void
     {
         $this->originalStreamHandler = StreamWrapperManager::getStreamHandler();
 
-        $fsCachingStreamHandler = new FsCachingStreamHandler(
+        $this->fsCachingStreamHandler = new FsCachingStreamHandler(
             $this->originalStreamHandler,
             $this->realpathCachePool,
             $this->statCachePool,
@@ -69,14 +79,27 @@ class FsCache implements FsCacheInterface
             $this->codeShift->shift(
                 new FunctionHookShiftSpec(
                     'clearstatcache',
-                    fn($original) => function () use ($fsCachingStreamHandler, $original): void {
-                        $fsCachingStreamHandler->invalidateCaches();
+                    fn($original) => function () use ($original): void {
+                        $this->fsCachingStreamHandler->invalidateCaches();
                     }
                 )
             );
         }
 
-        StreamWrapperManager::setStreamHandler($fsCachingStreamHandler);
+        StreamWrapperManager::setStreamHandler($this->fsCachingStreamHandler);
+    }
+
+    /**
+     * Persists the filesystem caches to PSR cache.
+     */
+    private function persistCaches(): void
+    {
+        if ($this->fsCachingStreamHandler === null) {
+            return; // Not installed.
+        }
+
+        $this->fsCachingStreamHandler->persistRealpathCache();
+        $this->fsCachingStreamHandler->persistStatCache();
     }
 
     /**
@@ -84,8 +107,14 @@ class FsCache implements FsCacheInterface
      */
     public function uninstall(): void
     {
-        StreamWrapperManager::setStreamHandler($this->originalStreamHandler);
+        if ($this->fsCachingStreamHandler === null) {
+            return; // Not installed.
+        }
 
+        $this->persistCaches();
+        $this->fsCachingStreamHandler = null;
+
+        StreamWrapperManager::setStreamHandler($this->originalStreamHandler);
         $this->originalStreamHandler = null;
     }
 }
