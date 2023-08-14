@@ -17,7 +17,7 @@ use Asmblah\PhpCodeShift\CodeShiftInterface;
 use Asmblah\PhpCodeShift\Shifter\Shift\Shift\FunctionHook\FunctionHookShiftSpec;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\StreamWrapperManager;
-use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
+use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
 /**
@@ -29,11 +29,12 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 class FsCache implements FsCacheInterface
 {
-    private ?FsCachingStreamHandler $fsCachingStreamHandler;
+    private ?FsCachingStreamHandlerInterface $fsCachingStreamHandler = null;
     private ?StreamHandlerInterface $originalStreamHandler;
 
     public function __construct(
         private readonly CodeShiftInterface $codeShift,
+        private readonly FsCacheFactoryInterface $streamFactory,
         /**
          * Set to null to disable PSR cache persistence.
          * Caches will still be maintained for the life of the request/CLI process.
@@ -63,7 +64,7 @@ class FsCache implements FsCacheInterface
     {
         $this->originalStreamHandler = StreamWrapperManager::getStreamHandler();
 
-        $this->fsCachingStreamHandler = new FsCachingStreamHandler(
+        $this->fsCachingStreamHandler = $this->streamFactory->createStreamHandler(
             $this->originalStreamHandler,
             $this->realpathCachePool,
             $this->statCachePool,

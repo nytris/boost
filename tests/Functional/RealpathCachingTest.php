@@ -143,4 +143,57 @@ class RealpathCachingTest extends AbstractFunctionalTestCase
         $this->boost->install();
         $this->boost->uninstall();
     }
+
+    public function testRealpathCacheIsEffectivelyClearedForAllSymbolicSourcePaths(): void
+    {
+        $symbolicPath = $this->varPath . '/a/b/c/../../../my-dir';
+        $canonicalPath = $this->varPath . '/my-dir';
+        mkdir($this->varPath . '/a/b/c', recursive: true);
+        $this->boost->install();
+        // Cause cache to be populated with non-existence for this path containing symbols.
+        is_dir($symbolicPath);
+
+        // Then create the directory.
+        mkdir($canonicalPath);
+
+        static::assertTrue(is_dir($symbolicPath));
+    }
+
+    public function testRealpathCacheIsEffectivelyClearedForAllSymlinkSourcePaths(): void
+    {
+        $symbolicPath = $this->varPath . '/a/b/c/../../../my-symlink';
+        $canonicalSymlinkPath = $this->varPath . '/my-symlink';
+        $eventualPath = $this->varPath . '/my-dir';
+        mkdir($this->varPath . '/a/b/c', recursive: true);
+        symlink($eventualPath, $canonicalSymlinkPath);
+        $this->boost->install();
+        // Cause cache to be populated with non-existence for this path containing symbols.
+        is_dir($symbolicPath);
+
+        // Then create the directory.
+        mkdir($eventualPath);
+
+        static::assertTrue(is_dir($symbolicPath));
+        static::assertTrue(is_dir($canonicalSymlinkPath));
+        static::assertTrue(is_dir($eventualPath));
+    }
+
+    public function testRealpathCacheIsEffectivelyClearedForEventualPaths(): void
+    {
+        $symbolicPath = $this->varPath . '/a/b/c/../../../my-symlink';
+        $canonicalSymlinkPath = $this->varPath . '/my-symlink';
+        $eventualPath = $this->varPath . '/my-file';
+        mkdir($this->varPath . '/a/b/c', recursive: true);
+        symlink($eventualPath, $canonicalSymlinkPath);
+        $this->boost->install();
+        // Cause cache to be populated with non-existence for the eventual path/symlink target.
+        is_file($eventualPath);
+
+        // Then create the file.
+        touch($canonicalSymlinkPath);
+
+        static::assertTrue(is_file($eventualPath));
+        static::assertTrue(is_file($symbolicPath));
+        static::assertTrue(is_file($canonicalSymlinkPath));
+    }
 }

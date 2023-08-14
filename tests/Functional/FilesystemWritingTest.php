@@ -63,7 +63,7 @@ class FilesystemWritingTest extends AbstractFunctionalTestCase
             'set' => null,
         ]);
 
-        $this->varPath = __DIR__ . '/../../var';
+        $this->varPath = realpath(__DIR__ . '/../../') . '/var';
         @mkdir($this->varPath, recursive: true);
 
         $this->boost = new Boost(

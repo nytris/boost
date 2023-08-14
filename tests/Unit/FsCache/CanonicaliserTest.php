@@ -1,0 +1,101 @@
+<?php
+
+/*
+ * Nytris Boost
+ * Copyright (c) Dan Phillimore (asmblah)
+ * https://github.com/nytris/boost/
+ *
+ * Released under the MIT license.
+ * https://github.com/nytris/boost/raw/main/MIT-LICENSE.txt
+ */
+
+declare(strict_types=1);
+
+namespace Nytris\Boost\Tests\Unit\FsCache;
+
+use Generator;
+use Nytris\Boost\FsCache\Canonicaliser;
+use Nytris\Boost\Tests\AbstractTestCase;
+
+/**
+ * Class CanonicaliserTest.
+ *
+ * @author Dan Phillimore <dan@ovms.co>
+ */
+class CanonicaliserTest extends AbstractTestCase
+{
+    private ?Canonicaliser $canonicaliser;
+
+    public function setUp(): void
+    {
+        $this->canonicaliser = new Canonicaliser();
+    }
+
+    /**
+     * @dataProvider canonicaliseDataProvider
+     */
+    public function testCanonicaliseReturnsACanonicalPathUnchanged(
+        string $path,
+        string $expectedResult,
+        string $cwd
+    ): void {
+        static::assertSame($expectedResult, $this->canonicaliser->canonicalise($path, $cwd));
+    }
+
+    public static function canonicaliseDataProvider(): Generator
+    {
+        yield 'already canonical' => [
+            '/my/canonical/path',
+            '/my/canonical/path',
+            '/home/me',
+        ];
+
+        yield 'empty string' => [
+            '',
+            '',
+            '/home/me',
+        ];
+
+        yield 'contains empty path segments' => [
+            '/my/path/with/some///empty//directory/symbols',
+            '/my/path/with/some/empty/directory/symbols',
+            '/home/me',
+        ];
+
+        yield 'contains same-directory symbols' => [
+            '/my/path/./with/some/././same-directory/symbols',
+            '/my/path/with/some/same-directory/symbols',
+            '/home/me',
+        ];
+
+        yield 'contains parent-directory symbols' => [
+            '/my/path/here/../with/some/../../parent-directory/symbols',
+            '/my/path/parent-directory/symbols',
+            '/home/me',
+        ];
+
+        yield 'relative to current directory' => [
+            './my/sub/path',
+            '/home/me/my/sub/path',
+            '/home/me',
+        ];
+
+        yield 'relative to current directory when cwd has trailing slash' => [
+            './my/sub/path',
+            '/home/me/my/sub/path',
+            '/home/me/',
+        ];
+
+        yield 'relative to parent directory' => [
+            '../my/sub/path',
+            '/home/my/sub/path',
+            '/home/you',
+        ];
+
+        yield 'relative to parent directory when cwd has trailing slash' => [
+            '../my/sub/path',
+            '/home/my/sub/path',
+            '/home/you/',
+        ];
+    }
+}

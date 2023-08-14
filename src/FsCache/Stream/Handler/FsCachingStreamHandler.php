@@ -16,6 +16,7 @@ namespace Nytris\Boost\FsCache\Stream\Handler;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\AbstractStreamHandlerDecorator;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
+use Nytris\Boost\FsCache\CanonicaliserInterface;
 use Nytris\Boost\FsCache\FsCacheInterface;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
@@ -28,7 +29,7 @@ use Psr\Cache\CacheItemPoolInterface;
  *
  * @author Dan Phillimore <dan@ovms.co>
  */
-class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
+class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements FsCachingStreamHandlerInterface
 {
     private array $realpathCache = [];
     private bool $realpathCacheIsDirty = false;
@@ -39,6 +40,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
 
     public function __construct(
         StreamHandlerInterface $wrappedStreamHandler,
+        private readonly CanonicaliserInterface $canonicaliser,
         private readonly ?CacheItemPoolInterface $realpathCachePool,
         private readonly ?CacheItemPoolInterface $statCachePool,
         string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
@@ -65,44 +67,37 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     }
 
     /**
-     * Caches the fact that a path does not exist in the realpath cache,
-     * to optimise future lookups for the same path.
+     * @inheritDoc
      */
-    public function cacheNonExistentPath(string $path): void
+    public function cacheRealpath(string $canonicalPath, string $realpath): void
     {
-        $this->realpathCache[$path] = [
-            'exists' => false,
-        ];
+        $pathToSegment = '';
+        $segments = explode('/', ltrim($realpath, '/'));
+
+        foreach ($segments as $segment) {
+            $pathToSegment .= '/' . $segment;
+
+            $this->cacheRealpathSegment($pathToSegment, $pathToSegment);
+        }
+
+        if ($canonicalPath !== $realpath) {
+            // Canonical path is not the same as the realpath, e.g. path is a symlink.
+            // Add pointer entry from canonical targeting the final symlink one.
+            $this->realpathCache[$canonicalPath] = [
+                'symlink' => $realpath,
+            ];
+        }
 
         $this->realpathCacheIsDirty = true;
     }
 
     /**
-     * Adds the given path (and all segments of the realpath) to the realpath cache.
+     * @inheritDoc
      */
-    public function cacheRealpath(string $path, string $realpath, bool $isDirectory): void
-    {
-        $pathToSegment = '';
-        $segments = explode('/', ltrim($realpath, '/'));
-        $segmentCount = count($segments);
-
-        foreach ($segments as $segmentIndex => $segment) {
-            $pathToSegment .= '/' . $segment;
-
-            $this->cacheRealpathSegment($pathToSegment, $pathToSegment, $isDirectory || $segmentIndex < $segmentCount - 1);
-        }
-
-        $this->cacheRealpathSegment($path, $realpath, $isDirectory);
-    }
-
-    /**
-     * Adds the given path, which may be to a single segment of a given path, to the realpath cache.
-     */
-    public function cacheRealpathSegment(string $path, string $realPath, bool $isDirectory): void
+    public function cacheRealpathSegment(string $path, string $realpath): void
     {
         $this->realpathCache[$path] = [
-            'is_dir' => $isDirectory,
-            'realpath' => $realPath,
+            'realpath' => $realpath,
             'expires' => 0, // FIXME.
         ];
 
@@ -110,8 +105,40 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     }
 
     /**
-     * Fetches the realpath for the given path if cached and not expired,
-     * otherwise resolves and caches it.
+     * @inheritDoc
+     */
+    public function getEventualPath(string $path): string
+    {
+        $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
+
+        $entry = $this->realpathCache[$canonicalPath] ?? null;
+        $realpath = $entry['realpath'] ?? null;
+
+        if ($realpath !== null) {
+            return $realpath;
+        }
+
+        // Follow symlink if it is one, as realpath will return false if eventual path is inaccessible.
+        if ($this->unwrapped(fn () => is_link($canonicalPath))) {
+            $resolvedPath = readlink($canonicalPath);
+
+            if ($resolvedPath !== false) {
+                // Link target may not be canonical, so we must canonicalise again.
+                $resolvedPath = $this->canonicaliser->canonicalise($resolvedPath, getcwd());
+            } else {
+                $resolvedPath = $canonicalPath;
+            }
+        } else {
+            $resolvedPath = $canonicalPath;
+        }
+
+        $realpath = realpath($resolvedPath);
+
+        return $realpath !== false ? $realpath : $resolvedPath;
+    }
+
+    /**
+     * @inheritDoc
      */
     public function getRealpath(string $path): ?string
     {
@@ -130,33 +157,89 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         }
 
         if ($realpath === null) {
+            $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
+
+            if ($path !== $canonicalPath) {
+                // Path is not canonical, add pointer entry targeting the canonical one.
+                $this->realpathCache[$path] = [
+                    'canonical' => $canonicalPath,
+                ];
+            }
+
             $realpath = realpath($path);
 
             if ($realpath === false) {
-                $this->cacheNonExistentPath($path);
+                if ($this->unwrapped(fn () => is_link($path))) {
+                    // File is a symlink to an inaccessible target file.
+                    $symlinkTarget = readlink($path);
+
+                    if ($symlinkTarget !== false) {
+                        $canonicalSymlinkTarget = $this->canonicaliser->canonicalise($symlinkTarget, getcwd());
+
+                        $this->realpathCache[$canonicalPath] = [
+                            'symlink' => $canonicalSymlinkTarget,
+                        ];
+
+                        $this->realpathCache[$canonicalSymlinkTarget] = [
+                            'exists' => false,
+                        ];
+
+                        return null; // File does not exist or is inaccessible.
+                    }
+                }
+
+                // Add canonical entry.
+                $this->realpathCache[$canonicalPath] = [
+                    'exists' => false,
+                ];
+
+                $this->realpathCacheIsDirty = true;
 
                 return null; // File does not exist or is inaccessible.
             }
 
-            $isDirectory = $this->unwrapped(fn () => is_dir($realpath));
-
-            $this->cacheRealpath($path, $realpath, $isDirectory);
+            $this->cacheRealpath($canonicalPath, $realpath);
         }
 
         return $realpath;
     }
 
     /**
-     * Fetches the realpath cache entry for the given path if cached and not expired,
-     * or null otherwise.
+     * @inheritDoc
      */
     public function getRealpathCacheEntry(string $path): ?array
     {
-        if (!array_key_exists($path, $this->realpathCache)) {
+        $entry = $this->realpathCache[$path] ?? null;
+
+        if ($entry === null) {
+            // TODO: Clear pointer entry from cache?
+
             return null; // Not in cache; early-out.
         }
 
-        $entry = $this->realpathCache[$path];
+        $canonicalPath = $entry['canonical'] ?? null;
+
+        if ($canonicalPath !== null) {
+            $entry = $this->realpathCache[$canonicalPath] ?? null;
+
+            if ($entry === null) {
+                // TODO: Clear pointer entry from cache?
+
+                return null; // Not in cache; early-out.
+            }
+        }
+
+        $symlinkPath = $entry['symlink'] ?? null;
+
+        if ($symlinkPath !== null) {
+            $entry = $this->realpathCache[$symlinkPath] ?? null;
+
+            if ($entry === null) {
+                // TODO: Clear pointer entry from cache?
+
+                return null; // Not in cache; early-out.
+            }
+        }
 
         // TODO: Expire if entry has expired.
 
@@ -164,7 +247,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     }
 
     /**
-     * Clears both the realpath and stat caches.
+     * @inheritDoc
      */
     public function invalidateCaches(): void
     {
@@ -173,14 +256,22 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     }
 
     /**
-     * Clears both the realpath and stat caches for the given path.
+     * @inheritDoc
      */
     public function invalidatePath(string $path): void
     {
-        $realpath = $this->getRealpath($path) ?? $path;
+        // Clear the canonical path entries (which may be pointed to by some symbolic path entries -
+        // this action will effectively invalidate those too).
+        $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
 
-        unset($this->realpathCache[$realpath]);
-        unset($this->statCache[$realpath]);
+        unset($this->realpathCache[$canonicalPath]);
+        unset($this->statCache[$canonicalPath]);
+
+        // Clear the eventual path entries if not cleared above.
+        $eventualPath = $this->getEventualPath($path);
+
+        unset($this->realpathCache[$eventualPath]);
+        unset($this->statCache[$eventualPath]);
 
         $this->realpathCacheIsDirty = true;
         $this->statCacheIsDirty = true;
@@ -197,7 +288,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     }
 
     /**
-     * Persists the current realpath cache via configured PSR cache.
+     * @inheritDoc
      */
     public function persistRealpathCache(): void
     {
@@ -210,7 +301,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     }
 
     /**
-     * Persists the current stat cache via configured PSR cache.
+     * @inheritDoc
      */
     public function persistStatCache(): void
     {
@@ -329,18 +420,37 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
     public function urlStat(string $path, int $flags): array|false
     {
         // Use lstat(...) for links but stat() for other files.
-        // FIXME: Cache these differently?
         $isLinkStat = $flags & STREAM_URL_STAT_LINK;
 
-        $realpath = $this->getRealpath($path);
+        if ($isLinkStat) {
+            // Link status fetches (lstat()s) stat the symlink file itself (if one exists at the given path)
+            // vs. stat() which stats the eventual file that the symlink points to.
+            $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
 
-        if ($realpath === null) {
-            return false;
+            $entry = $this->realpathCache[$canonicalPath] ?? null;
+
+            if ($entry !== null) {
+                $exists = $entry['exists'] ?? true;
+
+                if (!$exists) {
+                    return false; // File has been cached as non-existent.
+                }
+
+                $linkPath = $entry['symlink'] ?? $entry['realpath'];
+            } else {
+                $linkPath = $canonicalPath;
+            }
+        } else {
+            $linkPath = $this->getRealpath($path);
+
+            if ($linkPath === null) {
+                return false; // File has been cached as non-existent or is inaccessible.
+            }
         }
 
-        if (array_key_exists($realpath, $this->statCache)) {
+        if (array_key_exists($linkPath, $this->statCache)) {
             // Stat is already cached: just return it.
-            return $this->statCache[$realpath];
+            return $this->statCache[$linkPath];
         }
 
         $stat = $this->wrappedStreamHandler->urlStat($path, $flags);
@@ -351,7 +461,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator
         }
 
         // Cache stat for future reference.
-        $this->statCache[$realpath] = $stat;
+        $this->statCache[$linkPath] = $stat;
         $this->statCacheIsDirty = true;
 
         return $stat;
