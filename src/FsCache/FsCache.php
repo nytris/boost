@@ -34,7 +34,7 @@ class FsCache implements FsCacheInterface
 
     public function __construct(
         private readonly CodeShiftInterface $codeShift,
-        private readonly FsCacheFactoryInterface $streamFactory,
+        private readonly FsCacheFactoryInterface $fsCacheFactory,
         /**
          * Set to null to disable PSR cache persistence.
          * Caches will still be maintained for the life of the request/CLI process.
@@ -64,7 +64,7 @@ class FsCache implements FsCacheInterface
     {
         $this->originalStreamHandler = StreamWrapperManager::getStreamHandler();
 
-        $this->fsCachingStreamHandler = $this->streamFactory->createStreamHandler(
+        $this->fsCachingStreamHandler = $this->fsCacheFactory->createStreamHandler(
             $this->originalStreamHandler,
             $this->realpathCachePool,
             $this->statCachePool,

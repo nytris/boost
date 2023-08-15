@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nytris\Boost\FsCache;
 
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
+use Asmblah\PhpCodeShift\Util\CallStackInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
 use Psr\Cache\CacheItemPoolInterface;
@@ -28,7 +29,8 @@ use Psr\Cache\CacheItemPoolInterface;
 class FsCacheFactory implements FsCacheFactoryInterface
 {
     public function __construct(
-        private readonly CanonicaliserInterface $canonicaliser
+        private readonly CanonicaliserInterface $canonicaliser,
+        private readonly CallStackInterface $callStack
     ) {
     }
 
@@ -45,6 +47,7 @@ class FsCacheFactory implements FsCacheFactoryInterface
         return new FsCachingStreamHandler(
             $originalStreamHandler,
             $this->canonicaliser,
+            $this->callStack,
             $realpathCachePool,
             $statCachePool,
             $realpathCacheKey,

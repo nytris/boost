@@ -45,6 +45,54 @@ class IsWritableTest extends AbstractFilesystemFunctionalTestCase
         static::assertTrue(is_writable($symlinkPath));
     }
 
+    public function testReturnsTrueWhenOnlyAnAclAllowsWriteAccess(): void
+    {
+        $filePath = $this->varPath . '/my-file';
+        touch($filePath);
+        chmod($filePath, 0500); // Remove all write access.
+        $user = get_current_user();
+        $exitCode = 0;
+        // Grant the current user write access via ACL only.
+        $this->grantWriteAccessViaAcl($user, $filePath);
+        $this->boost->install();
+
+        static::assertSame(0, $exitCode);
+        static::assertTrue(is_writable($filePath));
+        clearstatcache(); // See caveat in FsCachingStreamHandler.
+        static::assertTrue(is_writeable($filePath)); // Check the alias as well.
+    }
+
+    /**
+     * Grants write access via ACL in a cross-platform way.
+     */
+    private function grantWriteAccessViaAcl(string $user, string $path): void
+    {
+        exec('command -v setfacl', result_code: $exitCode);
+        $setfaclSupported = $exitCode === 0;
+
+        if ($setfaclSupported) {
+            // Explicitly set the mask because the Unix permissions may deliberately be set to disallow,
+            // and so the auto-calculated mask would otherwise block the allow ACL we're trying to add.
+            exec(
+                'setfacl -m u:' . $user . ':w -m:rwx ' . escapeshellarg($path),
+                result_code: $exitCode
+            );
+
+            if ($exitCode !== 0) {
+                $this->fail('setfacl failed');
+            }
+        } else {
+            exec(
+                'chmod +a "' . $user . ' allow write" ' . escapeshellarg($path),
+                result_code: $exitCode
+            );
+
+            if ($exitCode !== 0) {
+                $this->fail('chmod failed');
+            }
+        }
+    }
+
     public function testReturnsFalseForANonExistentDirectory(): void
     {
         $this->boost->install();
