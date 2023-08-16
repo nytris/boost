@@ -74,6 +74,12 @@ class CanonicaliserTest extends AbstractTestCase
             '/home/me',
         ];
 
+        yield 'contains dotfiles' => [
+            '/my/path/.that/has/.dotfiles/.in',
+            '/my/path/.that/has/.dotfiles/.in', // Should be left unchanged.
+            '/home/me',
+        ];
+
         yield 'relative to current directory' => [
             './my/sub/path',
             '/home/me/my/sub/path',

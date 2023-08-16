@@ -62,6 +62,31 @@ class IsWritableTest extends AbstractFilesystemFunctionalTestCase
         static::assertTrue(is_writeable($filePath)); // Check the alias as well.
     }
 
+    public function testReturnsTrueFollowingOtherStatBasedFunctionsWhenOnlyAnAclAllowsWriteAccess(): void
+    {
+        $filePath = $this->varPath . '/my-file';
+        touch($filePath);
+        chmod($filePath, 0500); // Remove all write access.
+        $user = get_current_user();
+        $exitCode = 0;
+        // Grant the current user write access via ACL only.
+        $this->grantWriteAccessViaAcl($user, $filePath);
+        $this->boost->install();
+
+        static::assertSame(0, $exitCode);
+        static::assertTrue(
+            /*
+             * Populate PHP's internal stat cache immediately before calling is_writable(...),
+             * so that any test runner -related autoloading etc. is not performed in-between
+             * that may clobber the internal stat cache.
+             */
+            is_file($filePath) &&
+            is_writable($filePath)
+        );
+        clearstatcache(); // See caveat in FsCachingStreamHandler.
+        static::assertTrue(is_writeable($filePath)); // Check the alias as well.
+    }
+
     /**
      * Grants write access via ACL in a cross-platform way.
      */

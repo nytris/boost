@@ -186,6 +186,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
                             'exists' => false,
                         ];
 
+                        $this->realpathCacheIsDirty = true;
+
                         return null; // File does not exist or is inaccessible.
                     }
                 }
@@ -507,8 +509,6 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             }
 
             $stat['mode'] |= $bitmask;
-
-            return $stat;
         }
 
         // If not writable, then there is no reason to tweak the Unix permission mode.

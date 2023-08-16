@@ -42,6 +42,7 @@ class LstatTest extends AbstractFilesystemFunctionalTestCase
 
         $resultStatus = lstat($path);
         $this->boost->uninstall();
+        clearstatcache();
         $actualStatus = lstat($path);
 
         static::assertEquals($actualStatus, $resultStatus);
@@ -67,6 +68,7 @@ class LstatTest extends AbstractFilesystemFunctionalTestCase
 
         $resultStatus = lstat($path);
         $this->boost->uninstall();
+        clearstatcache();
         $actualStatus = lstat($path);
 
         static::assertEquals($actualStatus, $resultStatus);
@@ -96,6 +98,7 @@ class LstatTest extends AbstractFilesystemFunctionalTestCase
 
         $resultStatus = lstat($symlinkPath);
         $this->boost->uninstall();
+        clearstatcache();
         $actualStatus = lstat($symlinkPath);
 
         static::assertEquals($actualStatus, $resultStatus);
@@ -125,6 +128,7 @@ class LstatTest extends AbstractFilesystemFunctionalTestCase
 
         $resultStatus = lstat($symlinkPath);
         $this->boost->uninstall();
+        clearstatcache();
         $actualStatus = lstat($symlinkPath);
 
         static::assertEquals($actualStatus, $resultStatus);
