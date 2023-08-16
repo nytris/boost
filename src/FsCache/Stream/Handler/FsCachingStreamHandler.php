@@ -389,7 +389,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
 
         if (array_key_exists($realpath, $this->statCache)) {
             // Stat is already cached: just return it.
-            return $this->statCache[$realpath]['stat'];
+            return $this->statCache[$realpath];
         }
 
         $stat = $this->wrappedStreamHandler->streamStat($streamWrapper);
@@ -400,7 +400,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         }
 
         // Cache stat for future reference.
-        $this->statCache[$realpath] = ['stat' => $stat];
+        $this->statCache[$realpath] = $stat;
         $this->statCacheIsDirty = true;
 
         return $stat;
@@ -452,18 +452,14 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
 
         if (array_key_exists($linkPath, $this->statCache)) {
             // Stat is already cached: just return it.
-            $stat = $this->statCache[$linkPath]['stat'];
-        } else {
-            $stat = $this->wrappedStreamHandler->urlStat($path, $flags);
+            return $this->statCache[$linkPath];
+        }
 
-            if ($stat === false) {
-                // Stat failed.
-                return false;
-            }
+        $stat = $this->wrappedStreamHandler->urlStat($path, $flags);
 
-            // Cache stat for future reference.
-            $this->statCache[$linkPath] = ['stat' => $stat];
-            $this->statCacheIsDirty = true;
+        if ($stat === false) {
+            // Stat failed.
+            return false;
         }
 
         /*
@@ -484,54 +480,42 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
          *
          * TODO: Handle ACLs for is_readable(...) and is_executable(...) in the same way.
          */
-        $nativeFunctionName = $this->callStack->getNativeFunctionName();
+        $isWritable = $this->unwrapped(fn () => is_writable($path));
 
-        if ($nativeFunctionName === 'is_writable' || $nativeFunctionName === 'is_writeable') {
-            $cachedResult = $this->statCache[$linkPath][$nativeFunctionName] ?? null;
+        if ($isWritable) {
+            // As explained above, tweak the mode accordingly to emulate the ACL within the Unix permission mode.
+            $bitmask = 0;
 
-            if ($cachedResult !== null) {
-                // We already cached the result of the native function via the native wrapper, so use that.
-                $isWritable = $cachedResult;
-            } else {
-                // We do not have a cached result, so call the native function via the native wrapper and cache it.
-                $isWritable = $this->unwrapped(fn () => is_writable($path));
-
-                $this->statCache[$linkPath][$nativeFunctionName] = $isWritable;
-                $this->statCacheIsDirty = true;
-            }
-
-            if ($isWritable) {
-                // As explained above, tweak the mode accordingly to emulate the ACL within the Unix permission mode.
-                // TODO: Cache the calculated mode?
-                $bitmask = 0;
-
-                if (extension_loaded('posix')) {
-                    if ($stat['uid'] === posix_getuid()) {
-                        $bitmask = 0200;
-                    } elseif ($stat['gid'] === posix_getgid()) {
-                        $bitmask = 0020;
-                    } else {
-                        foreach (posix_getgroups() as $groupId) {
-                            if ($stat['gid'] === $groupId) {
-                                $bitmask = 0020;
-                                break;
-                            }
+            if (extension_loaded('posix')) {
+                if ($stat['uid'] === posix_getuid()) {
+                    $bitmask = 0200;
+                } elseif ($stat['gid'] === posix_getgid()) {
+                    $bitmask = 0020;
+                } else {
+                    foreach (posix_getgroups() as $groupId) {
+                        if ($stat['gid'] === $groupId) {
+                            $bitmask = 0020;
+                            break;
                         }
                     }
                 }
-
-                if ($bitmask === 0) {
-                    // Use the "other" permission class otherwise.
-                    $bitmask = 0002;
-                }
-
-                $stat['mode'] |= $bitmask;
-
-                return $stat;
             }
 
-            // If not writable, then there is no reason to tweak the Unix permission mode.
+            if ($bitmask === 0) {
+                // Use the "other" permission class otherwise.
+                $bitmask = 0002;
+            }
+
+            $stat['mode'] |= $bitmask;
+
+            return $stat;
         }
+
+        // If not writable, then there is no reason to tweak the Unix permission mode.
+
+        // Cache stat for future reference.
+        $this->statCache[$linkPath] = $stat;
+        $this->statCacheIsDirty = true;
 
         return $stat;
     }

@@ -104,7 +104,7 @@ class StatCachingTest extends AbstractFunctionalTestCase
         $this->statCacheItem->allows()
             ->get()
             ->andReturn([
-                $imaginaryPath => ['stat' => $actualPathStat],
+                $imaginaryPath => $actualPathStat,
             ]);
         $this->boost->install();
 
