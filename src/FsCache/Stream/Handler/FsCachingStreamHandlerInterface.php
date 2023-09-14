@@ -31,23 +31,18 @@ interface FsCachingStreamHandlerInterface extends StreamHandlerInterface
     public function cacheRealpath(string $canonicalPath, string $realpath): void;
 
     /**
-     * Adds the given path, which may be to a single segment of a given path, to the realpath cache.
-     */
-    public function cacheRealpathSegment(string $path, string $realpath): void;
-
-    /**
      * Fetches the realpath for the given path, even if it does not exist.
      */
     public function getEventualPath(string $path): string;
 
     /**
-     * Fetches the realpath for the given path if cached and not expired,
+     * Fetches the realpath for the given path if cached,
      * otherwise resolves and caches it.
      */
     public function getRealpath(string $path): ?string;
 
     /**
-     * Fetches the realpath cache entry for the given path if cached and not expired,
+     * Fetches the realpath cache entry for the given path if cached,
      * or null otherwise.
      */
     public function getRealpathCacheEntry(string $path): ?array;

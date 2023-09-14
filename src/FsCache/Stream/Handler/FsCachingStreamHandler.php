@@ -73,14 +73,9 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function cacheRealpath(string $canonicalPath, string $realpath): void
     {
-        $pathToSegment = '';
-        $segments = explode('/', ltrim($realpath, '/'));
-
-        foreach ($segments as $segment) {
-            $pathToSegment .= '/' . $segment;
-
-            $this->cacheRealpathSegment($pathToSegment, $pathToSegment);
-        }
+        $this->realpathCache[$realpath] = [
+            'realpath' => $realpath,
+        ];
 
         if ($canonicalPath !== $realpath) {
             // Canonical path is not the same as the realpath, e.g. path is a symlink.
@@ -89,19 +84,6 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
                 'symlink' => $realpath,
             ];
         }
-
-        $this->realpathCacheIsDirty = true;
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function cacheRealpathSegment(string $path, string $realpath): void
-    {
-        $this->realpathCache[$path] = [
-            'realpath' => $realpath,
-            'expires' => 0, // FIXME.
-        ];
 
         $this->realpathCacheIsDirty = true;
     }
@@ -244,8 +226,6 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
                 return null; // Not in cache; early-out.
             }
         }
-
-        // TODO: Expire if entry has expired.
 
         return $entry;
     }
