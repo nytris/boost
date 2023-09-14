@@ -31,8 +31,8 @@ interface FsCacheFactoryInterface
      */
     public function createStreamHandler(
         StreamHandlerInterface $originalStreamHandler,
-        CacheItemPoolInterface $realpathCachePool,
-        CacheItemPoolInterface $statCachePool,
+        ?CacheItemPoolInterface $realpathCachePool,
+        ?CacheItemPoolInterface $statCachePool,
         string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
         string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY
     ): FsCachingStreamHandlerInterface;
