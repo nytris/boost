@@ -28,24 +28,12 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 abstract class AbstractFilesystemFunctionalTestCase extends AbstractFunctionalTestCase
 {
-    protected ?Boost $boost;
-    /**
-     * @var (MockInterface&CacheItemInterface)|null
-     */
-    protected $realpathCacheItem;
-    /**
-     * @var (MockInterface&CacheItemPoolInterface)|null
-     */
-    protected $realpathCachePool;
-    /**
-     * @var (MockInterface&CacheItemInterface)|null
-     */
-    protected $statCacheItem;
-    /**
-     * @var (MockInterface&CacheItemPoolInterface)|null
-     */
-    protected $statCachePool;
-    protected ?string $varPath;
+    protected Boost $boost;
+    protected MockInterface&CacheItemInterface $realpathCacheItem;
+    protected MockInterface&CacheItemPoolInterface $realpathCachePool;
+    protected MockInterface&CacheItemInterface $statCacheItem;
+    protected MockInterface&CacheItemPoolInterface $statCachePool;
+    protected string $varPath;
 
     public function setUp(): void
     {
@@ -63,7 +51,10 @@ abstract class AbstractFilesystemFunctionalTestCase extends AbstractFunctionalTe
             'set' => null,
         ]);
         $this->statCacheItem = mock(CacheItemInterface::class, [
-            'get' => [],
+            'get' => [
+                'includes' => [],
+                'plain' => [],
+            ],
             'isHit' => true,
             'set' => null,
         ]);

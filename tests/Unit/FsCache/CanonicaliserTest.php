@@ -24,7 +24,7 @@ use Nytris\Boost\Tests\AbstractTestCase;
  */
 class CanonicaliserTest extends AbstractTestCase
 {
-    private ?Canonicaliser $canonicaliser;
+    private Canonicaliser $canonicaliser;
 
     public function setUp(): void
     {

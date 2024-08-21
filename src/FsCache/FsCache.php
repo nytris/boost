@@ -44,7 +44,7 @@ class FsCache implements FsCacheInterface
         private readonly string $realpathCacheKey = self::DEFAULT_REALPATH_CACHE_KEY,
         private readonly string $statCacheKey = self::DEFAULT_STAT_CACHE_KEY,
         /**
-         * Whether to hook built-in functions such as clearstatcache(...).
+         * Whether to hook built-in functions such as `clearstatcache(...)`.
          */
         private readonly bool $hookBuiltinFunctions = true
     ) {
@@ -73,12 +73,12 @@ class FsCache implements FsCacheInterface
         );
 
         if ($this->hookBuiltinFunctions) {
-            // Hook the clearstatcache() function and simply have it fully clear both caches for now.
+            // Hook the `clearstatcache()` function and simply have it fully clear both caches for now.
             // TODO: Implement parameters.
             $this->codeShift->shift(
                 new FunctionHookShiftSpec(
                     'clearstatcache',
-                    fn($original) => function () use ($original): void {
+                    fn () => function (): void {
                         $this->fsCachingStreamHandler->invalidateCaches();
                     }
                 )

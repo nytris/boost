@@ -14,11 +14,14 @@
     },
     "require": {
         "php": ">=8.1",
-        "asmblah/php-code-shift": "@dev",
+        "asmblah/php-code-shift": "^0.1",
+        "nytris/nytris": "^0.1",
         "psr/cache": "^1.0"
     },
     "require-dev": {
-        "mockery/mockery": "^1.6",
+        "mockery/mockery": "1.6.11",
+        "phpstan/phpstan": "^1.10",
+        "phpstan/phpstan-mockery": "^1.1",
         "phpunit/phpunit": "^10.2"
     },
     "config": {

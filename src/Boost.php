@@ -15,7 +15,6 @@ namespace Nytris\Boost;
 
 use Asmblah\PhpCodeShift\CodeShift;
 use Asmblah\PhpCodeShift\CodeShiftInterface;
-use Asmblah\PhpCodeShift\Shared;
 use Nytris\Boost\FsCache\Canonicaliser;
 use Nytris\Boost\FsCache\FsCache;
 use Nytris\Boost\FsCache\FsCacheFactory;
@@ -53,7 +52,7 @@ class Boost implements BoostInterface
         $this->codeShift = $codeShift ?? new CodeShift();
         $this->fsCache = $fsCache ?? new FsCache(
             $this->codeShift,
-            new FsCacheFactory(new Canonicaliser(), Shared::getCallStack()),
+            new FsCacheFactory(new Canonicaliser()),
             $realpathCachePool,
             $statCachePool,
             $realpathCacheKey,

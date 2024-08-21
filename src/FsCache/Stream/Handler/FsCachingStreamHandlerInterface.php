@@ -21,6 +21,10 @@ use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
  * Caches realpath and filesystem stats, optionally also to a PSR cache implementation,
  * to improve performance.
  *
+ * @phpstan-type RealpathCache array<string, RealpathCacheEntry>
+ * @phpstan-type RealpathCacheEntry array{canonical?: string, exists?: bool, realpath?: string, symlink?: string}
+ * @phpstan-type StatCache array<string, StatCacheEntry>
+ * @phpstan-type StatCacheEntry array<mixed>
  * @author Dan Phillimore <dan@ovms.co>
  */
 interface FsCachingStreamHandlerInterface extends StreamHandlerInterface
@@ -44,6 +48,9 @@ interface FsCachingStreamHandlerInterface extends StreamHandlerInterface
     /**
      * Fetches the realpath cache entry for the given path if cached,
      * or null otherwise.
+     *
+     * @param string $path
+     * @return RealpathCacheEntry|null
      */
     public function getRealpathCacheEntry(string $path): ?array;
 

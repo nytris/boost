@@ -19,10 +19,58 @@ When in use, this library caches stats for all files accessed and not only the m
 Install this package with Composer:
 
 ```shell
-$ composer install nytris/boost
+$ composer require nytris/boost
 ```
 
-Now load it as early as possible in your application, for example a `/bootstrap.php`:
+### When using Nytris platform (recommended)
+
+Configure Nytris platform:
+
+`nytris.config.php`
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use Nytris\Boost\BoostPackage;
+use Nytris\Boot\BootConfig;
+use Nytris\Boot\PlatformConfig;
+use Symfony\Component\Cache\Adapter\FilesystemAdapter;
+
+$bootConfig = new BootConfig(new PlatformConfig(__DIR__ . '/var/cache/nytris/'));
+
+$bootConfig->installPackage(new BoostPackage(
+    // Allows changing to avoid collisions if required.
+    realpathCacheKey: 'realpath_key',
+
+    // Using Symfony Cache adapter as an example.
+    realpathCachePoolFactory: fn (string $cachePath) => new FilesystemAdapter(
+        'realpath',
+        0,
+        $cachePath
+    ),
+
+    // Allows changing to avoid collisions if required.
+    statCacheKey: 'stat_key',
+
+    // Using Symfony Cache adapter as an example.
+    statCachePoolFactory: fn (string $cachePath) => new FilesystemAdapter(
+        'stat',
+        0,
+        $cachePath
+    ),
+
+    // Whether to hook `clearstatcache(...)`.
+    hookBuiltinFunctions: true
+));
+
+return $bootConfig;
+```
+
+### When using Boost standalone
+
+Load Boost as early as possible in your application, for example a `/bootstrap.php`:
 
 ```php
 <?php

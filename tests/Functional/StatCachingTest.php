@@ -25,24 +25,12 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 class StatCachingTest extends AbstractFunctionalTestCase
 {
-    private ?Boost $boost;
-    /**
-     * @var (MockInterface&CacheItemInterface)|null
-     */
-    private $realpathCacheItem;
-    /**
-     * @var (MockInterface&CacheItemPoolInterface)|null
-     */
-    private $realpathCachePool;
-    /**
-     * @var (MockInterface&CacheItemInterface)|null
-     */
-    private $statCacheItem;
-    /**
-     * @var (MockInterface&CacheItemPoolInterface)|null
-     */
-    private $statCachePool;
-    private ?string $varPath;
+    private Boost $boost;
+    private MockInterface&CacheItemInterface $realpathCacheItem;
+    private MockInterface&CacheItemPoolInterface $realpathCachePool;
+    private MockInterface&CacheItemInterface $statCacheItem;
+    private MockInterface&CacheItemPoolInterface $statCachePool;
+    private string $varPath;
 
     public function setUp(): void
     {
@@ -58,7 +46,10 @@ class StatCachingTest extends AbstractFunctionalTestCase
             'set' => null,
         ]);
         $this->statCacheItem = mock(CacheItemInterface::class, [
-            'get' => [],
+            'get' => [
+                'includes' => [],
+                'plain' => [],
+            ],
             'isHit' => true,
             'set' => null,
         ]);
@@ -104,7 +95,10 @@ class StatCachingTest extends AbstractFunctionalTestCase
         $this->statCacheItem->allows()
             ->get()
             ->andReturn([
-                $imaginaryPath => $actualPathStat,
+                'includes' => [],
+                'plain' => [
+                    $imaginaryPath => $actualPathStat,
+                ],
             ]);
         $this->boost->install();
 

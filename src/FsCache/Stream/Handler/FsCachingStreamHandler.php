@@ -16,7 +16,6 @@ namespace Nytris\Boost\FsCache\Stream\Handler;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\AbstractStreamHandlerDecorator;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
-use Asmblah\PhpCodeShift\Util\CallStackInterface;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
 use Nytris\Boost\FsCache\FsCacheInterface;
 use Psr\Cache\CacheItemInterface;
@@ -28,21 +27,34 @@ use Psr\Cache\CacheItemPoolInterface;
  * Caches realpath and filesystem stats, optionally also to a PSR cache implementation,
  * to improve performance.
  *
+ * @phpstan-import-type RealpathCache from FsCachingStreamHandlerInterface
+ * @phpstan-import-type RealpathCacheEntry from FsCachingStreamHandlerInterface
+ * @phpstan-import-type StatCache from FsCachingStreamHandlerInterface
+ * @phpstan-import-type StatCacheEntry from FsCachingStreamHandlerInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements FsCachingStreamHandlerInterface
 {
+    /**
+     * @var RealpathCache
+     */
     private array $realpathCache = [];
     private bool $realpathCacheIsDirty = false;
     private ?CacheItemInterface $realpathCachePoolItem = null;
-    private array $statCache = [];
+    /**
+     * @var StatCache
+     */
+    private array $statCacheForIncludes = [];
+    /**
+     * @var StatCache
+     */
+    private array $statCacheForNonIncludes = [];
     private bool $statCacheIsDirty = false;
     private ?CacheItemInterface $statCachePoolItem = null;
 
     public function __construct(
         StreamHandlerInterface $wrappedStreamHandler,
         private readonly CanonicaliserInterface $canonicaliser,
-        private readonly CallStackInterface $callStack,
         private readonly ?CacheItemPoolInterface $realpathCachePool,
         private readonly ?CacheItemPoolInterface $statCachePool,
         string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
@@ -63,7 +75,10 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             $this->statCachePoolItem = $this->statCachePool->getItem($statCacheKey);
 
             if ($this->statCachePoolItem->isHit()) {
-                $this->statCache = $this->statCachePoolItem->get();
+                $statCache = $this->statCachePoolItem->get();
+
+                $this->statCacheForIncludes = $statCache['includes'] ?? [];
+                $this->statCacheForNonIncludes = $statCache['plain'] ?? [];
             }
         }
     }
@@ -148,6 +163,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
                 $this->realpathCache[$path] = [
                     'canonical' => $canonicalPath,
                 ];
+
+                $this->realpathCacheIsDirty = true;
             }
 
             $realpath = realpath($path);
@@ -236,7 +253,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
     public function invalidateCaches(): void
     {
         $this->realpathCache = [];
-        $this->statCache = [];
+        $this->statCacheForIncludes = [];
+        $this->statCacheForNonIncludes = [];
     }
 
     /**
@@ -248,14 +266,20 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         // this action will effectively invalidate those too).
         $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
 
-        unset($this->realpathCache[$canonicalPath]);
-        unset($this->statCache[$canonicalPath]);
+        unset(
+            $this->realpathCache[$canonicalPath],
+            $this->statCacheForIncludes[$canonicalPath],
+            $this->statCacheForNonIncludes[$canonicalPath]
+        );
 
         // Clear the eventual path entries if not cleared above.
         $eventualPath = $this->getEventualPath($path);
 
-        unset($this->realpathCache[$eventualPath]);
-        unset($this->statCache[$eventualPath]);
+        unset(
+            $this->realpathCache[$eventualPath],
+            $this->statCacheForIncludes[$eventualPath],
+            $this->statCacheForNonIncludes[$eventualPath]
+        );
 
         $this->realpathCacheIsDirty = true;
         $this->statCacheIsDirty = true;
@@ -293,7 +317,10 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             return; // Persistence is disabled or nothing changed; nothing to do.
         }
 
-        $this->statCachePoolItem->set($this->statCache);
+        $this->statCachePoolItem->set([
+            'includes' => $this->statCacheForIncludes,
+            'plain' => $this->statCacheForNonIncludes,
+        ]);
         $this->statCachePool->saveDeferred($this->statCachePoolItem);
     }
 
@@ -337,7 +364,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         string $mode,
         int $options,
         ?string &$openedPath
-    ) {
+    ): ?array {
         $isRead = str_contains($mode, 'r') && !str_contains($mode, '+');
 
         if ($isRead) {
@@ -369,9 +396,15 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             return false;
         }
 
-        if (array_key_exists($realpath, $this->statCache)) {
+        if ($streamWrapper->isInclude()) {
+            $effectiveStatCache =& $this->statCacheForIncludes;
+        } else {
+            $effectiveStatCache =& $this->statCacheForNonIncludes;
+        }
+
+        if (array_key_exists($realpath, $effectiveStatCache)) {
             // Stat is already cached: just return it.
-            return $this->statCache[$realpath];
+            return $effectiveStatCache[$realpath];
         }
 
         $stat = $this->wrappedStreamHandler->streamStat($streamWrapper);
@@ -382,7 +415,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         }
 
         // Cache stat for future reference.
-        $this->statCache[$realpath] = $stat;
+        $effectiveStatCache[$realpath] = $stat;
         $this->statCacheIsDirty = true;
 
         return $stat;
@@ -432,9 +465,9 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             }
         }
 
-        if (array_key_exists($linkPath, $this->statCache)) {
+        if (array_key_exists($linkPath, $this->statCacheForNonIncludes)) {
             // Stat is already cached: just return it.
-            return $this->statCache[$linkPath];
+            return $this->statCacheForNonIncludes[$linkPath];
         }
 
         $stat = $this->wrappedStreamHandler->urlStat($path, $flags);
@@ -444,57 +477,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             return false;
         }
 
-        /*
-         * When using the native stream wrapper, is_writable(...) correctly handles ACLs.
-         * However, when using a custom stream wrapper, only the mode in the returned stat is checked.
-         * This means that if write permission is only granted by ACL for example, then as that cannot
-         * be represented within the mode, is_writable(...) ends up returning false.
-         *
-         * We cannot directly change the return value of is_writable(...), but we can tweak the mode
-         * in the returned stat to allow write permission.
-         *
-         * Similar to the native stream wrapper, we determine which of the Unix permission classes
-         * (user, group or other) is most applicable and set its relevant bit,
-         * because PHP will internally check the relevant one based on ownership of the file.
-         *
-         * Note that due to PHP's stat cache, if this file is stat'ed again before a different file,
-         * the modified stat result (with tweaked Unix permissions mode) will be used.
-         *
-         * TODO: Handle ACLs for is_readable(...) and is_executable(...) in the same way.
-         */
-        $isWritable = $this->unwrapped(fn () => is_writable($path));
-
-        if ($isWritable) {
-            // As explained above, tweak the mode accordingly to emulate the ACL within the Unix permission mode.
-            $bitmask = 0;
-
-            if (extension_loaded('posix')) {
-                if ($stat['uid'] === posix_getuid()) {
-                    $bitmask = 0200;
-                } elseif ($stat['gid'] === posix_getgid()) {
-                    $bitmask = 0020;
-                } else {
-                    foreach (posix_getgroups() as $groupId) {
-                        if ($stat['gid'] === $groupId) {
-                            $bitmask = 0020;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if ($bitmask === 0) {
-                // Use the "other" permission class otherwise.
-                $bitmask = 0002;
-            }
-
-            $stat['mode'] |= $bitmask;
-        }
-
-        // If not writable, then there is no reason to tweak the Unix permission mode.
-
         // Cache stat for future reference.
-        $this->statCache[$linkPath] = $stat;
+        $this->statCacheForNonIncludes[$linkPath] = $stat;
         $this->statCacheIsDirty = true;
 
         return $stat;
