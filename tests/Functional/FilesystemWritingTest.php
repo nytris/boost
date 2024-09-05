@@ -28,7 +28,8 @@ class FilesystemWritingTest extends AbstractFunctionalTestCase
     private Boost $boost;
     private MockInterface&CacheItemInterface $realpathCacheItem;
     private MockInterface&CacheItemPoolInterface $realpathCachePool;
-    private MockInterface&CacheItemInterface $statCacheItem;
+    private MockInterface&CacheItemInterface $statCacheItemForIncludes;
+    private MockInterface&CacheItemInterface $statCacheItemForNonIncludes;
     private MockInterface&CacheItemPoolInterface $statCachePool;
     private string $varPath;
 
@@ -45,16 +46,18 @@ class FilesystemWritingTest extends AbstractFunctionalTestCase
             'isHit' => true,
             'set' => null,
         ]);
-        $this->statCacheItem = mock(CacheItemInterface::class, [
-            'get' => [
-                'includes' => [],
-                'plain' => [],
-            ],
+        $this->statCacheItemForIncludes = mock(CacheItemInterface::class, [
+            'get' => [],
+            'isHit' => true,
+            'set' => null,
+        ]);
+        $this->statCacheItemForNonIncludes = mock(CacheItemInterface::class, [
+            'get' => [],
             'isHit' => true,
             'set' => null,
         ]);
 
-        $this->varPath = realpath(__DIR__ . '/../../') . '/var';
+        $this->varPath = dirname(__DIR__, 2) . '/var/test';
         @mkdir($this->varPath, recursive: true);
 
         $this->boost = new Boost(
@@ -66,10 +69,16 @@ class FilesystemWritingTest extends AbstractFunctionalTestCase
 
         $this->realpathCachePool->allows()
             ->getItem('__my_realpath_cache')
-            ->andReturn($this->realpathCacheItem);
+            ->andReturn($this->realpathCacheItem)
+            ->byDefault();
         $this->statCachePool->allows()
-            ->getItem('__my_stat_cache')
-            ->andReturn($this->statCacheItem);
+            ->getItem('__my_stat_cache_includes')
+            ->andReturn($this->statCacheItemForIncludes)
+            ->byDefault();
+        $this->statCachePool->allows()
+            ->getItem('__my_stat_cache_plain')
+            ->andReturn($this->statCacheItemForNonIncludes)
+            ->byDefault();
     }
 
     public function tearDown(): void

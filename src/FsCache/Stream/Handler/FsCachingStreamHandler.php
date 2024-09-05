@@ -50,7 +50,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     private array $statCacheForNonIncludes = [];
     private bool $statCacheIsDirty = false;
-    private ?CacheItemInterface $statCachePoolItem = null;
+    private ?CacheItemInterface $statCachePoolItemForIncludes = null;
+    private ?CacheItemInterface $statCachePoolItemForNonIncludes = null;
 
     public function __construct(
         StreamHandlerInterface $wrappedStreamHandler,
@@ -58,7 +59,11 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         private readonly ?CacheItemPoolInterface $realpathCachePool,
         private readonly ?CacheItemPoolInterface $statCachePool,
         string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
-        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY
+        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
+        /**
+         * Whether the non-existence of files should be cached in the realpath cache.
+         */
+        private readonly bool $cacheNonExistentFiles = true
     ) {
         parent::__construct($wrappedStreamHandler);
 
@@ -72,13 +77,16 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         }
 
         if ($this->statCachePool !== null) {
-            $this->statCachePoolItem = $this->statCachePool->getItem($statCacheKey);
+            $this->statCachePoolItemForIncludes = $this->statCachePool->getItem($statCacheKey . '_includes');
 
-            if ($this->statCachePoolItem->isHit()) {
-                $statCache = $this->statCachePoolItem->get();
+            if ($this->statCachePoolItemForIncludes->isHit()) {
+                $this->statCacheForIncludes = $this->statCachePoolItemForIncludes->get();
+            }
 
-                $this->statCacheForIncludes = $statCache['includes'] ?? [];
-                $this->statCacheForNonIncludes = $statCache['plain'] ?? [];
+            $this->statCachePoolItemForNonIncludes = $this->statCachePool->getItem($statCacheKey . '_plain');
+
+            if ($this->statCachePoolItemForNonIncludes->isHit()) {
+                $this->statCacheForNonIncludes = $this->statCachePoolItemForNonIncludes->get();
             }
         }
     }
@@ -181,9 +189,11 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
                             'symlink' => $canonicalSymlinkTarget,
                         ];
 
-                        $this->realpathCache[$canonicalSymlinkTarget] = [
-                            'exists' => false,
-                        ];
+                        if ($this->cacheNonExistentFiles) {
+                            $this->realpathCache[$canonicalSymlinkTarget] = [
+                                'exists' => false,
+                            ];
+                        }
 
                         $this->realpathCacheIsDirty = true;
 
@@ -191,10 +201,12 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
                     }
                 }
 
-                // Add canonical entry.
-                $this->realpathCache[$canonicalPath] = [
-                    'exists' => false,
-                ];
+                if ($this->cacheNonExistentFiles) {
+                    // Add canonical entry.
+                    $this->realpathCache[$canonicalPath] = [
+                        'exists' => false,
+                    ];
+                }
 
                 $this->realpathCacheIsDirty = true;
 
@@ -255,6 +267,9 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         $this->realpathCache = [];
         $this->statCacheForIncludes = [];
         $this->statCacheForNonIncludes = [];
+
+        $this->realpathCacheIsDirty = true;
+        $this->statCacheIsDirty = true;
     }
 
     /**
@@ -313,15 +328,14 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function persistStatCache(): void
     {
-        if ($this->statCachePoolItem === null || $this->statCacheIsDirty === false) {
+        if ($this->statCachePoolItemForIncludes === null || $this->statCacheIsDirty === false) {
             return; // Persistence is disabled or nothing changed; nothing to do.
         }
 
-        $this->statCachePoolItem->set([
-            'includes' => $this->statCacheForIncludes,
-            'plain' => $this->statCacheForNonIncludes,
-        ]);
-        $this->statCachePool->saveDeferred($this->statCachePoolItem);
+        $this->statCachePoolItemForIncludes->set($this->statCacheForIncludes);
+        $this->statCachePoolItemForNonIncludes->set($this->statCacheForNonIncludes);
+        $this->statCachePool->saveDeferred($this->statCachePoolItemForIncludes);
+        $this->statCachePool->saveDeferred($this->statCachePoolItemForNonIncludes);
     }
 
     /**

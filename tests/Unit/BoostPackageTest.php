@@ -98,6 +98,20 @@ class BoostPackageTest extends AbstractTestCase
         static::assertNull($package->getStatCachePool('/my/cache/path'));
     }
 
+    public function testShouldCacheNonExistentFilesReturnsTrueWhenSet(): void
+    {
+        $package = new BoostPackage(cacheNonExistentFiles: true);
+
+        static::assertTrue($package->shouldCacheNonExistentFiles());
+    }
+
+    public function testShouldCacheNonExistentFilesReturnsFalseWhenSet(): void
+    {
+        $package = new BoostPackage(cacheNonExistentFiles: false);
+
+        static::assertFalse($package->shouldCacheNonExistentFiles());
+    }
+
     public function testShouldHookBuiltinFunctionsReturnsTrueWhenSet(): void
     {
         $package = new BoostPackage(hookBuiltinFunctions: true);

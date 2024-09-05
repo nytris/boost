@@ -22,5 +22,5 @@ parameters:
 
 		-
 			message: "#^Call to function is_file\\(\\) on a separate line has no effect\\.$#"
-			count: 1
+			count: 5
 			path: tests/Functional/RealpathCachingTest.php

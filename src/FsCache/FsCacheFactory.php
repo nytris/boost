@@ -40,7 +40,11 @@ class FsCacheFactory implements FsCacheFactoryInterface
         ?CacheItemPoolInterface $realpathCachePool,
         ?CacheItemPoolInterface $statCachePool,
         string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
-        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY
+        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
+        /**
+         * Whether the non-existence of files should be cached in the realpath cache.
+         */
+        bool $cacheNonExistentFiles = true
     ): FsCachingStreamHandlerInterface {
         return new FsCachingStreamHandler(
             $originalStreamHandler,
@@ -48,7 +52,8 @@ class FsCacheFactory implements FsCacheFactoryInterface
             $realpathCachePool,
             $statCachePool,
             $realpathCacheKey,
-            $statCacheKey
+            $statCacheKey,
+            $cacheNonExistentFiles
         );
     }
 }

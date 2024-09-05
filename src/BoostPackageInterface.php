@@ -52,6 +52,11 @@ interface BoostPackageInterface extends PackageInterface
     public function getStatCachePool(string $boostCachePath): ?CacheItemPoolInterface;
 
     /**
+     * Fetches whether the non-existence of files should be cached in the realpath cache.
+     */
+    public function shouldCacheNonExistentFiles(): bool;
+
+    /**
      * Fetches whether to hook built-in functions such as `clearstatcache(...)`.
      */
     public function shouldHookBuiltinFunctions(): bool;

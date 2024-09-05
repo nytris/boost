@@ -46,7 +46,11 @@ class FsCache implements FsCacheInterface
         /**
          * Whether to hook built-in functions such as `clearstatcache(...)`.
          */
-        private readonly bool $hookBuiltinFunctions = true
+        private readonly bool $hookBuiltinFunctions = true,
+        /**
+         * Whether the non-existence of files should be cached in the realpath cache.
+         */
+        private readonly bool $cacheNonExistentFiles = true
     ) {
         /**
          * To reduce I/O, defer PSR cache persistence (if enabled)
@@ -69,7 +73,8 @@ class FsCache implements FsCacheInterface
             $this->realpathCachePool,
             $this->statCachePool,
             $this->realpathCacheKey,
-            $this->statCacheKey
+            $this->statCacheKey,
+            $this->cacheNonExistentFiles
         );
 
         if ($this->hookBuiltinFunctions) {

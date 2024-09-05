@@ -82,7 +82,8 @@ class Charge implements ChargeInterface
                 statCachePool: $package->getStatCachePool($packageContext->getPackageCachePath()),
                 realpathCacheKey: $package->getRealpathCacheKey(),
                 statCacheKey: $package->getStatCacheKey(),
-                hookBuiltinFunctions: $package->shouldHookBuiltinFunctions()
+                hookBuiltinFunctions: $package->shouldHookBuiltinFunctions(),
+                cacheNonExistentFiles: $package->shouldCacheNonExistentFiles()
             )
         );
     }

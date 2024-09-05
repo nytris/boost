@@ -47,7 +47,11 @@ class Boost implements BoostInterface
         /**
          * Whether to hook built-in functions such as clearstatcache(...).
          */
-        bool $hookBuiltinFunctions = true
+        bool $hookBuiltinFunctions = true,
+        /**
+         * Whether the non-existence of files should be cached in the realpath cache.
+         */
+        bool $cacheNonExistentFiles = true
     ) {
         $this->codeShift = $codeShift ?? new CodeShift();
         $this->fsCache = $fsCache ?? new FsCache(
@@ -57,7 +61,8 @@ class Boost implements BoostInterface
             $statCachePool,
             $realpathCacheKey,
             $statCacheKey,
-            $hookBuiltinFunctions
+            $hookBuiltinFunctions,
+            $cacheNonExistentFiles
         );
     }
 

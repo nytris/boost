@@ -28,7 +28,8 @@ class RealpathCachingTest extends AbstractFunctionalTestCase
     private Boost $boost;
     private MockInterface&CacheItemInterface $realpathCacheItem;
     private MockInterface&CacheItemPoolInterface $realpathCachePool;
-    private MockInterface&CacheItemInterface $statCacheItem;
+    private MockInterface&CacheItemInterface $statCacheItemForIncludes;
+    private MockInterface&CacheItemInterface $statCacheItemForNonIncludes;
     private MockInterface&CacheItemPoolInterface $statCachePool;
     private string $varPath;
 
@@ -45,16 +46,18 @@ class RealpathCachingTest extends AbstractFunctionalTestCase
             'isHit' => true,
             'set' => null,
         ]);
-        $this->statCacheItem = mock(CacheItemInterface::class, [
-            'get' => [
-                'includes' => [],
-                'plain' => [],
-            ],
+        $this->statCacheItemForIncludes = mock(CacheItemInterface::class, [
+            'get' => [],
+            'isHit' => true,
+            'set' => null,
+        ]);
+        $this->statCacheItemForNonIncludes = mock(CacheItemInterface::class, [
+            'get' => [],
             'isHit' => true,
             'set' => null,
         ]);
 
-        $this->varPath = __DIR__ . '/../../var';
+        $this->varPath = dirname(__DIR__, 2) . '/var/test';
         @mkdir($this->varPath, recursive: true);
 
         $this->boost = new Boost(
@@ -66,10 +69,16 @@ class RealpathCachingTest extends AbstractFunctionalTestCase
 
         $this->realpathCachePool->allows()
             ->getItem('__my_realpath_cache')
-            ->andReturn($this->realpathCacheItem);
+            ->andReturn($this->realpathCacheItem)
+            ->byDefault();
         $this->statCachePool->allows()
-            ->getItem('__my_stat_cache')
-            ->andReturn($this->statCacheItem);
+            ->getItem('__my_stat_cache_includes')
+            ->andReturn($this->statCacheItemForIncludes)
+            ->byDefault();
+        $this->statCachePool->allows()
+            ->getItem('__my_stat_cache_plain')
+            ->andReturn($this->statCacheItemForNonIncludes)
+            ->byDefault();
     }
 
     public function tearDown(): void
@@ -122,6 +131,63 @@ class RealpathCachingTest extends AbstractFunctionalTestCase
 
         $this->boost->install();
         file_put_contents($this->varPath . '/my_file.txt', 'my contents');
+        $this->boost->uninstall();
+    }
+
+    public function testNonExistentFilesArePersistedInRealpathCacheWhenEnabled(): void
+    {
+        $actualPath = __DIR__ . '/Fixtures/my_actual_file.php';
+        $nonExistentPath = $this->varPath . '/my_non_existent_file.txt';
+        $this->realpathCacheItem->expects('set')
+            ->once()
+            ->andReturnUsing(function (mixed $data) use ($actualPath, $nonExistentPath) {
+                static::assertEquals(
+                    [
+                        $actualPath => ['realpath' => $actualPath],
+                        $nonExistentPath => ['exists' => false],
+                    ],
+                    $data
+                );
+            });
+        $this->realpathCachePool->expects()
+            ->saveDeferred($this->realpathCacheItem)
+            ->once();
+
+        $this->boost->install();
+        is_file($actualPath);
+        is_file($nonExistentPath);
+        $this->boost->uninstall();
+    }
+
+    public function testNonExistentFilesAreNotPersistedInRealpathCacheWhenDisabled(): void
+    {
+        $this->boost = new Boost(
+            realpathCachePool: $this->realpathCachePool,
+            statCachePool: $this->statCachePool,
+            realpathCacheKey: '__my_realpath_cache',
+            statCacheKey: '__my_stat_cache',
+            cacheNonExistentFiles: false // Disable caching of non-existent files.
+        );
+        $actualPath = __DIR__ . '/Fixtures/my_actual_file.php';
+        $nonExistentPath = $this->varPath . '/my_non_existent_file.txt';
+        $this->realpathCacheItem->expects('set')
+            ->once()
+            ->andReturnUsing(function (mixed $data) use ($actualPath) {
+                static::assertEquals(
+                    [
+                        $actualPath => ['realpath' => $actualPath],
+                        // Note that no entry is added for the non-existent file.
+                    ],
+                    $data
+                );
+            });
+        $this->realpathCachePool->expects()
+            ->saveDeferred($this->realpathCacheItem)
+            ->once();
+
+        $this->boost->install();
+        is_file($actualPath);
+        is_file($nonExistentPath);
         $this->boost->uninstall();
     }
 

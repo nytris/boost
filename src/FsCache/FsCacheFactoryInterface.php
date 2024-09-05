@@ -34,6 +34,7 @@ interface FsCacheFactoryInterface
         ?CacheItemPoolInterface $realpathCachePool,
         ?CacheItemPoolInterface $statCachePool,
         string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
-        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY
+        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
+        bool $cacheNonExistentFiles = true
     ): FsCachingStreamHandlerInterface;
 }

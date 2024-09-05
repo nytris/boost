@@ -46,7 +46,11 @@ class BoostPackage implements BoostPackageInterface
         /**
          * Whether to hook built-in functions such as clearstatcache(...).
          */
-        private readonly bool $hookBuiltinFunctions = true
+        private readonly bool $hookBuiltinFunctions = true,
+        /**
+         * Whether the non-existence of files should be cached in the realpath cache.
+         */
+        private readonly bool $cacheNonExistentFiles = true
     ) {
     }
 
@@ -92,6 +96,14 @@ class BoostPackage implements BoostPackageInterface
         return $this->statCachePoolFactory !== null ?
             ($this->statCachePoolFactory)($boostCachePath) :
             null;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function shouldCacheNonExistentFiles(): bool
+    {
+        return $this->cacheNonExistentFiles;
     }
 
     /**

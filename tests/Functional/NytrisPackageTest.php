@@ -72,12 +72,16 @@ class NytrisPackageTest extends AbstractFunctionalTestCase
 
     public function testShiftStreamWrapperIsInstalledCorrectly(): void
     {
-        $stream = fopen($this->varPath . '/my_file.txt', 'wb+');
+        $path = $this->varPath . '/my_file.txt';
+        $stream = fopen($path, 'wb+');
 
         $metaData = stream_get_meta_data($stream);
 
         static::assertSame('user-space', $metaData['wrapper_type']);
-        static::assertInstanceOf(StreamWrapper::class, $metaData['wrapper_data']);
+        /** @var StreamWrapper $streamWrapper */
+        $streamWrapper = $metaData['wrapper_data'];
+        static::assertInstanceOf(StreamWrapper::class, $streamWrapper);
+        static::assertSame($path, $streamWrapper->getOpenPath());
     }
 
     public function testShiftsMayBeAppliedToCachedModulesWithShiftThenWriteThenIncludeThenStat(): void

@@ -34,7 +34,8 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
     private MockInterface&CacheItemPoolInterface $realpathCachePool;
     private MockInterface&CacheItemInterface $realpathCachePoolItem;
     private MockInterface&CacheItemPoolInterface $statCachePool;
-    private MockInterface&CacheItemInterface $statCachePoolItem;
+    private MockInterface&CacheItemInterface $statCacheItemForIncludes;
+    private MockInterface&CacheItemInterface $statCacheItemForNonIncludes;
     private MockInterface&StreamWrapperInterface $streamWrapper;
     private MockInterface&StreamHandlerInterface $wrappedStreamHandler;
 
@@ -51,17 +52,18 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             'isHit' => true,
         ]);
         $this->statCachePool = mock(CacheItemPoolInterface::class);
-        $this->statCachePoolItem = mock(CacheItemInterface::class, [
+        $this->statCacheItemForIncludes = mock(CacheItemInterface::class, [
             'get' => [
-                'includes' => [
-                    '/my/path/to/my_module.php' => [
-                        'my_fake_include_stat' => 'yes',
-                    ],
+                '/my/path/to/my_module.php' => [
+                    'my_fake_include_stat' => 'yes',
                 ],
-                'plain' => [
-                    '/my/file.txt' => [
-                        'my_fake_plain_stat' => 'yes',
-                    ],
+            ],
+            'isHit' => true,
+        ]);
+        $this->statCacheItemForNonIncludes = mock(CacheItemInterface::class, [
+            'get' => [
+                '/my/file.txt' => [
+                    'my_fake_plain_stat' => 'yes',
                 ],
             ],
             'isHit' => true,
@@ -79,8 +81,13 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             ->byDefault();
 
         $this->statCachePool->allows()
-            ->getItem('my_stat_cache_key')
-            ->andReturn($this->statCachePoolItem)
+            ->getItem('my_stat_cache_key_includes')
+            ->andReturn($this->statCacheItemForIncludes)
+            ->byDefault();
+
+        $this->statCachePool->allows()
+            ->getItem('my_stat_cache_key_plain')
+            ->andReturn($this->statCacheItemForNonIncludes)
             ->byDefault();
 
         $this->wrappedStreamHandler->allows('unwrapped')
@@ -118,6 +125,63 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             ],
             $this->fsCachingStreamHandler->getRealpathCacheEntry('/my/custom/canonical/path')
         );
+    }
+
+    public function testGetRealpathCachesNonExistentFileWhenEnabled(): void
+    {
+        $path = '/my/non/existent/path';
+
+        static::assertNull($this->fsCachingStreamHandler->getRealpath($path));
+        static::assertEquals(
+            ['exists' => false],
+            $this->fsCachingStreamHandler->getRealpathCacheEntry($path)
+        );
+    }
+
+    public function testGetRealpathDoesNotCacheNonExistentFileWhenDisabled(): void
+    {
+        $path = '/my/non/existent/path';
+        $this->fsCachingStreamHandler = new FsCachingStreamHandler(
+            $this->wrappedStreamHandler,
+            $this->canonicaliser,
+            $this->realpathCachePool,
+            $this->statCachePool,
+            realpathCacheKey: 'my_realpath_cache_key',
+            statCacheKey: 'my_stat_cache_key',
+            cacheNonExistentFiles: false // Disable caching of non-existent files.
+        );
+
+        static::assertNull($this->fsCachingStreamHandler->getRealpath($path));
+        static::assertNull($this->fsCachingStreamHandler->getRealpathCacheEntry($path));
+    }
+
+    public function testPersistStatCachePersistsBothStatTypeCachesWhenDirty(): void
+    {
+        $this->statCacheItemForIncludes->expects('set')
+            ->once();
+        $this->statCacheItemForNonIncludes->expects('set')
+            ->once();
+        $this->statCachePool->expects()
+            ->saveDeferred($this->statCacheItemForIncludes)
+            ->once();
+        $this->statCachePool->expects()
+            ->saveDeferred($this->statCacheItemForNonIncludes)
+            ->once();
+
+        $this->fsCachingStreamHandler->invalidateCaches();
+        $this->fsCachingStreamHandler->persistStatCache();
+    }
+
+    public function testPersistStatCacheDoesNotPersistStatTypeCachesWhenClean(): void
+    {
+        $this->statCacheItemForIncludes->expects('set')
+            ->never();
+        $this->statCacheItemForNonIncludes->expects('set')
+            ->never();
+        $this->statCachePool->expects('saveDeferred')
+            ->never();
+
+        $this->fsCachingStreamHandler->persistStatCache();
     }
 
     public function testStreamStatRetrievesACachedIncludeStat(): void
