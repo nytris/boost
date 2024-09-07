@@ -15,7 +15,10 @@ namespace Nytris\Boost;
 
 use Asmblah\PhpCodeShift\CodeShift;
 use Asmblah\PhpCodeShift\CodeShiftInterface;
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Nytris\Boost\FsCache\Canonicaliser;
+use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\FsCache;
 use Nytris\Boost\FsCache\FsCacheFactory;
 use Nytris\Boost\FsCache\FsCacheInterface;
@@ -37,10 +40,18 @@ class Boost implements BoostInterface
         ?CodeShiftInterface $codeShift = null,
         ?FsCacheInterface $fsCache = null,
         /**
+         * Cache pool in which to persist the realpath cache.
+         *
          * Set to null to disable PSR cache persistence.
-         * Caches will still be maintained for the life of the request/CLI process.
+         * Cache will still be maintained for the life of the request/CLI process.
          */
         ?CacheItemPoolInterface $realpathCachePool = null,
+        /**
+         * Cache pool in which to persist the stat cache.
+         *
+         * Set to null to disable PSR cache persistence.
+         * Cache will still be maintained for the life of the request/CLI process.
+         */
         ?CacheItemPoolInterface $statCachePool = null,
         string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
         string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
@@ -51,7 +62,17 @@ class Boost implements BoostInterface
         /**
          * Whether the non-existence of files should be cached in the realpath cache.
          */
-        bool $cacheNonExistentFiles = true
+        bool $cacheNonExistentFiles = true,
+        /**
+         * Cache in which to store file contents.
+         *
+         * Set to null to disable contents caching.
+         */
+        ?ContentsCacheInterface $contentsCache = null,
+        /**
+         * Filter for which file paths to cache in the realpath, stat and contents caches.
+         */
+        FileFilterInterface $pathFilter = new FileFilter('*')
     ) {
         $this->codeShift = $codeShift ?? new CodeShift();
         $this->fsCache = $fsCache ?? new FsCache(
@@ -59,10 +80,12 @@ class Boost implements BoostInterface
             new FsCacheFactory(new Canonicaliser()),
             $realpathCachePool,
             $statCachePool,
+            $contentsCache,
             $realpathCacheKey,
             $statCacheKey,
             $hookBuiltinFunctions,
-            $cacheNonExistentFiles
+            $cacheNonExistentFiles,
+            $pathFilter
         );
     }
 

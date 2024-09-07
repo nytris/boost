@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 namespace Nytris\Boost;
 
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
+use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Core\Package\PackageInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -25,6 +27,16 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 interface BoostPackageInterface extends PackageInterface
 {
+    /**
+     * Fetches the cache in which to store file contents, or null when disabled.
+     */
+    public function getContentsCache(string $boostCachePath): ?ContentsCacheInterface;
+
+    /**
+     * Fetches the filter for which file paths to cache.
+     */
+    public function getPathFilter(): FileFilterInterface;
+
     /**
      * Fetches the key to use for the realpath cache within the cache pool.
      */

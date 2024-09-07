@@ -14,9 +14,13 @@ declare(strict_types=1);
 namespace Nytris\Boost\FsCache;
 
 use Asmblah\PhpCodeShift\CodeShiftInterface;
+use Asmblah\PhpCodeShift\Shifter\Filter\ExceptFilter;
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Asmblah\PhpCodeShift\Shifter\Shift\Shift\FunctionHook\FunctionHookShiftSpec;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\StreamWrapperManager;
+use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -35,22 +39,20 @@ class FsCache implements FsCacheInterface
     public function __construct(
         private readonly CodeShiftInterface $codeShift,
         private readonly FsCacheFactoryInterface $fsCacheFactory,
-        /**
-         * Set to null to disable PSR cache persistence.
-         * Caches will still be maintained for the life of the request/CLI process.
-         */
-        private readonly ?CacheItemPoolInterface $realpathCachePool = null,
-        private readonly ?CacheItemPoolInterface $statCachePool = null,
-        private readonly string $realpathCacheKey = self::DEFAULT_REALPATH_CACHE_KEY,
-        private readonly string $statCacheKey = self::DEFAULT_STAT_CACHE_KEY,
+        private readonly ?CacheItemPoolInterface $realpathCachePool,
+        private readonly ?CacheItemPoolInterface $statCachePool,
+        private readonly ?ContentsCacheInterface $contentsCache,
+        private readonly string $realpathCacheKey,
+        private readonly string $statCacheKey,
         /**
          * Whether to hook built-in functions such as `clearstatcache(...)`.
          */
-        private readonly bool $hookBuiltinFunctions = true,
+        private readonly bool $hookBuiltinFunctions,
         /**
          * Whether the non-existence of files should be cached in the realpath cache.
          */
-        private readonly bool $cacheNonExistentFiles = true
+        private readonly bool $cacheNonExistentFiles,
+        private readonly FileFilterInterface $pathFilter
     ) {
         /**
          * To reduce I/O, defer PSR cache persistence (if enabled)
@@ -72,9 +74,15 @@ class FsCache implements FsCacheInterface
             $this->originalStreamHandler,
             $this->realpathCachePool,
             $this->statCachePool,
+            $this->contentsCache,
             $this->realpathCacheKey,
             $this->statCacheKey,
-            $this->cacheNonExistentFiles
+            $this->cacheNonExistentFiles,
+            // Exclude Boost's own source from being cached to prevent a catch-22.
+            new ExceptFilter(
+                new FileFilter(dirname(__DIR__) . '/**'),
+                $this->pathFilter
+            )
         );
 
         if ($this->hookBuiltinFunctions) {

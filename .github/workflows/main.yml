@@ -18,12 +18,14 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php-version }}
+          # Ensure ext-opcache is installed for running tests against.
+          extensions: ':opcache'
 
       - name: Install Composer dependencies
         run: composer install
 
       - name: Run tests
-        run: vendor/bin/phpunit
+        run: php -d opcache.enable=On -d opcache.enable_cli=On vendor/bin/phpunit
 
   phpstan:
     runs-on: ubuntu-latest

@@ -13,7 +13,9 @@ declare(strict_types=1);
 
 namespace Nytris\Boost\FsCache;
 
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
+use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
 use Psr\Cache\CacheItemPoolInterface;
@@ -39,21 +41,25 @@ class FsCacheFactory implements FsCacheFactoryInterface
         StreamHandlerInterface $originalStreamHandler,
         ?CacheItemPoolInterface $realpathCachePool,
         ?CacheItemPoolInterface $statCachePool,
-        string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
-        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
+        ?ContentsCacheInterface $contentsCache,
+        string $realpathCacheKey,
+        string $statCacheKey,
         /**
          * Whether the non-existence of files should be cached in the realpath cache.
          */
-        bool $cacheNonExistentFiles = true
+        bool $cacheNonExistentFiles,
+        FileFilterInterface $pathFilter
     ): FsCachingStreamHandlerInterface {
         return new FsCachingStreamHandler(
             $originalStreamHandler,
             $this->canonicaliser,
             $realpathCachePool,
             $statCachePool,
+            $contentsCache,
             $realpathCacheKey,
             $statCacheKey,
-            $cacheNonExistentFiles
+            $cacheNonExistentFiles,
+            $pathFilter
         );
     }
 }

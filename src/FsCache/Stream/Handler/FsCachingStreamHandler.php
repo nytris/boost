@@ -13,11 +13,13 @@ declare(strict_types=1);
 
 namespace Nytris\Boost\FsCache\Stream\Handler;
 
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\AbstractStreamHandlerDecorator;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
+use LogicException;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
-use Nytris\Boost\FsCache\FsCacheInterface;
+use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -58,12 +60,14 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         private readonly CanonicaliserInterface $canonicaliser,
         private readonly ?CacheItemPoolInterface $realpathCachePool,
         private readonly ?CacheItemPoolInterface $statCachePool,
-        string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
-        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
+        private readonly ?ContentsCacheInterface $contentsCache,
+        string $realpathCacheKey,
+        string $statCacheKey,
         /**
          * Whether the non-existence of files should be cached in the realpath cache.
          */
-        private readonly bool $cacheNonExistentFiles = true
+        private readonly bool $cacheNonExistentFiles,
+        private readonly FileFilterInterface $pathFilter
     ) {
         parent::__construct($wrappedStreamHandler);
 
@@ -379,6 +383,17 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         int $options,
         ?string &$openedPath
     ): ?array {
+        if (!$this->pathFilter->fileMatches($path)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->streamOpen(
+                $streamWrapper,
+                $path,
+                $mode,
+                $options,
+                $openedPath
+            );
+        }
+
         $isRead = str_contains($mode, 'r') && !str_contains($mode, '+');
 
         if ($isRead) {
@@ -394,7 +409,81 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             $this->invalidatePath($effectivePath);
         }
 
-        return $this->wrappedStreamHandler->streamOpen($streamWrapper, $effectivePath, $mode, $options, $openedPath);
+        if ($this->contentsCache === null) {
+            // Contents cache is disabled, so ignore.
+            return $this->wrappedStreamHandler->streamOpen($streamWrapper, $effectivePath, $mode, $options, $openedPath);
+        }
+
+        if (!$isRead) {
+            // We are opening for write, so invalidate any cache entries for plain or include (shifted) versions
+            // to ensure writes are picked up in future and then ignore.
+            $this->contentsCache->invalidatePath($effectivePath);
+
+            return $this->wrappedStreamHandler->streamOpen($streamWrapper, $effectivePath, $mode, $options, $openedPath);
+        }
+
+        $isInclude = $this->wrappedStreamHandler->isInclude($options);
+
+        $cachedFile = $this->contentsCache->getItemForPath($effectivePath, $isInclude);
+
+        if ($cachedFile->isCached()) {
+            // File's contents are cached, so we can serve it without hitting the filesystem.
+
+            $cacheStream = fopen('php://memory', 'rb+');
+            $contents = $cachedFile->getContents();
+
+            fwrite($cacheStream, $contents);
+            rewind($cacheStream);
+
+            if ($isInclude) {
+                /*
+                 * Populate the stat cache for the include if it hasn't already been.
+                 *
+                 * See notes in `->synthesiseIncludeStat(...)`.
+                 */
+                $this->synthesiseIncludeStat($effectivePath, strlen($contents));
+            }
+
+            $usePath = (bool) ($options & STREAM_USE_PATH);
+
+            if ($usePath && $openedPath) {
+                // This is usually done by the original StreamHandler, but when contents are cached
+                // we do not return to there.
+                $openedPath = $effectivePath;
+            }
+
+            return ['resource' => $cacheStream, 'isInclude' => $isInclude];
+        }
+
+        // Contents are not yet cached - forward to the wrapped handler,
+        // which will also apply any applicable shifts.
+        $result = $this->wrappedStreamHandler->streamOpen(
+            $streamWrapper,
+            $effectivePath,
+            $mode,
+            $options,
+            $openedPath
+        );
+        $sourceStream = $result['resource'];
+
+        $contents = stream_get_contents($sourceStream);
+
+        // Now rewind the stream after reading its contents just above,
+        // so that it can be reused for the current stream wrapper.
+        rewind($sourceStream);
+
+        $cachedFile->setContents($contents);
+
+        if ($isInclude) {
+            /*
+             * Populate the stat cache for the include if it hasn't already been.
+             *
+             * See notes in `->synthesiseIncludeStat(...)`.
+             */
+            $this->synthesiseIncludeStat($effectivePath, strlen($contents));
+        }
+
+        return $result;
     }
 
     /**
@@ -402,6 +491,11 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function streamStat(StreamWrapperInterface $streamWrapper): array|false
     {
+        if (!$this->pathFilter->fileMatches($streamWrapper->getOpenPath())) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->streamStat($streamWrapper);
+        }
+
         // TODO?
         $path = $streamWrapper->getOpenPath();
         $realpath = $this->getRealpath($path);
@@ -429,10 +523,70 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         }
 
         // Cache stat for future reference.
-        $effectiveStatCache[$realpath] = $stat;
+        $effectiveStatCache[$realpath] = $this->synthesiseStat($stat);
         $this->statCacheIsDirty = true;
 
         return $stat;
+    }
+
+    /*
+     * Populates the stat cache for an include if it hasn't already been.
+     *
+     * In particular, we need:
+     * - The size to match that of the shifted code (if applicable) and not the original,
+     * - Timestamps to match, as OPcache won't cache streams with a modification date
+     *   after script start if `opcache.file_update_protection` is enabled.
+     */
+    private function synthesiseIncludeStat(string $realpath, int $size): void
+    {
+        if (array_key_exists($realpath, $this->statCacheForIncludes)) {
+            // Already cached.
+            return;
+        }
+
+        // Note that we cannot stat the open stream, as it may be a `php://memory` stream
+        // rather than the original, e.g. if it was shifted.
+        // This may be served from cache if previously performed by a non-include stat.
+        $nonIncludeStat = $this->urlStat($realpath, STREAM_URL_STAT_QUIET);
+
+        if ($nonIncludeStat === false) {
+            throw new LogicException('Cannot stat original realpath "' . $realpath . '"');
+        }
+
+        // Ensure we use the size of the potentially shifted contents and not the original.
+        $includeStat = $this->synthesiseStat([...$nonIncludeStat, 'size' => $size]);
+
+        $this->statCacheForIncludes[$realpath] = $includeStat;
+        $this->statCacheIsDirty = true;
+    }
+
+    /**
+     * Converts the given stat to a synthetic one that is not bound to the original inode.
+     * This allows it to be persisted without causing strange issues.
+     *
+     * @param array<mixed> $stat
+     * @return array<mixed>
+     */
+    public function synthesiseStat(array $stat): array
+    {
+        $syntheticStat = [
+            'dev' => 0,
+            'ino' => 0,
+            'mode' => $stat['mode'],
+            'nlink' => 0,
+            'uid' => $stat['uid'],
+            'gid' => $stat['gid'],
+            'rdev' => 0,
+            'size' => $stat['size'],
+            'atime' => $stat['atime'],
+            'mtime' => $stat['mtime'],
+            'ctime' => $stat['ctime'],
+            'blksize' => -1,
+            'blocks' => -1,
+        ];
+
+        // Stat elements are also available in the above order under indexed keys.
+        return array_merge(array_values($syntheticStat), $syntheticStat);
     }
 
     /**
@@ -450,6 +604,11 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function urlStat(string $path, int $flags): array|false
     {
+        if (!$this->pathFilter->fileMatches($path)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->urlStat($path, $flags);
+        }
+
         // Use lstat(...) for links but stat() for other files.
         $isLinkStat = $flags & STREAM_URL_STAT_LINK;
 
@@ -492,7 +651,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         }
 
         // Cache stat for future reference.
-        $this->statCacheForNonIncludes[$linkPath] = $stat;
+        $this->statCacheForNonIncludes[$linkPath] = $this->synthesiseStat($stat);
         $this->statCacheIsDirty = true;
 
         return $stat;

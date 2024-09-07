@@ -13,10 +13,12 @@ declare(strict_types=1);
 
 namespace Nytris\Boost\Tests\Unit\FsCache\Stream\Handler;
 
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
 use Mockery\MockInterface;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
+use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
 use Nytris\Boost\Tests\AbstractTestCase;
 use Psr\Cache\CacheItemInterface;
@@ -30,6 +32,7 @@ use Psr\Cache\CacheItemPoolInterface;
 class FsCachingStreamHandlerTest extends AbstractTestCase
 {
     private MockInterface&CanonicaliserInterface $canonicaliser;
+    private MockInterface&ContentsCacheInterface $contentsCache;
     private FsCachingStreamHandler $fsCachingStreamHandler;
     private MockInterface&CacheItemPoolInterface $realpathCachePool;
     private MockInterface&CacheItemInterface $realpathCachePoolItem;
@@ -42,6 +45,7 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
     public function setUp(): void
     {
         $this->canonicaliser = mock(CanonicaliserInterface::class);
+        $this->contentsCache = mock(ContentsCacheInterface::class);
         $this->realpathCachePool = mock(CacheItemPoolInterface::class);
         $this->realpathCachePoolItem = mock(CacheItemInterface::class, [
             'get' => [
@@ -99,8 +103,11 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             $this->canonicaliser,
             $this->realpathCachePool,
             $this->statCachePool,
+            $this->contentsCache,
             realpathCacheKey: 'my_realpath_cache_key',
-            statCacheKey: 'my_stat_cache_key'
+            statCacheKey: 'my_stat_cache_key',
+            cacheNonExistentFiles: true,
+            pathFilter: new FileFilter('*')
         );
     }
 
@@ -146,9 +153,11 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             $this->canonicaliser,
             $this->realpathCachePool,
             $this->statCachePool,
+            $this->contentsCache,
             realpathCacheKey: 'my_realpath_cache_key',
             statCacheKey: 'my_stat_cache_key',
-            cacheNonExistentFiles: false // Disable caching of non-existent files.
+            cacheNonExistentFiles: false, // Disable caching of non-existent files.
+            pathFilter: new FileFilter('*')
         );
 
         static::assertNull($this->fsCachingStreamHandler->getRealpath($path));

@@ -83,7 +83,9 @@ class Charge implements ChargeInterface
                 realpathCacheKey: $package->getRealpathCacheKey(),
                 statCacheKey: $package->getStatCacheKey(),
                 hookBuiltinFunctions: $package->shouldHookBuiltinFunctions(),
-                cacheNonExistentFiles: $package->shouldCacheNonExistentFiles()
+                cacheNonExistentFiles: $package->shouldCacheNonExistentFiles(),
+                contentsCache: $package->getContentsCache($packageContext->getPackageCachePath()),
+                pathFilter: $package->getPathFilter()
             )
         );
     }
