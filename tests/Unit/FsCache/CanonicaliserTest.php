@@ -14,6 +14,8 @@ declare(strict_types=1);
 namespace Nytris\Boost\Tests\Unit\FsCache;
 
 use Generator;
+use Mockery\MockInterface;
+use Nytris\Boost\Environment\EnvironmentInterface;
 use Nytris\Boost\FsCache\Canonicaliser;
 use Nytris\Boost\Tests\AbstractTestCase;
 
@@ -25,10 +27,13 @@ use Nytris\Boost\Tests\AbstractTestCase;
 class CanonicaliserTest extends AbstractTestCase
 {
     private Canonicaliser $canonicaliser;
+    private MockInterface&EnvironmentInterface $environment;
 
     public function setUp(): void
     {
-        $this->canonicaliser = new Canonicaliser();
+        $this->environment = mock(EnvironmentInterface::class);
+
+        $this->canonicaliser = new Canonicaliser($this->environment);
     }
 
     /**
@@ -103,5 +108,17 @@ class CanonicaliserTest extends AbstractTestCase
             '/home/my/sub/path',
             '/home/you/',
         ];
+    }
+
+    public function testCanonicaliseFetchesCwdFromEnvironmentWhenNotSpecified(): void
+    {
+        $this->environment->allows()
+            ->getCwd()
+            ->andReturn('/my/canonical');
+
+        static::assertSame(
+            '/my/canonical/path/to/stuff.txt',
+            $this->canonicaliser->canonicalise('./path/to/stuff.txt')
+        );
     }
 }

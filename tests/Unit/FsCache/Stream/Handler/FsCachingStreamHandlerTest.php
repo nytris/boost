@@ -20,6 +20,7 @@ use Mockery\MockInterface;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
+use Nytris\Boost\FsCache\Stream\Opener\StreamOpenerInterface;
 use Nytris\Boost\Tests\AbstractTestCase;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
@@ -39,6 +40,7 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
     private MockInterface&CacheItemPoolInterface $statCachePool;
     private MockInterface&CacheItemInterface $statCacheItemForIncludes;
     private MockInterface&CacheItemInterface $statCacheItemForNonIncludes;
+    private MockInterface&StreamOpenerInterface $streamOpener;
     private MockInterface&StreamWrapperInterface $streamWrapper;
     private MockInterface&StreamHandlerInterface $wrappedStreamHandler;
 
@@ -72,6 +74,7 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             ],
             'isHit' => true,
         ]);
+        $this->streamOpener = mock(StreamOpenerInterface::class);
         $this->streamWrapper = mock(StreamWrapperInterface::class);
         $this->wrappedStreamHandler = mock(StreamHandlerInterface::class);
 
@@ -100,6 +103,7 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
 
         $this->fsCachingStreamHandler = new FsCachingStreamHandler(
             $this->wrappedStreamHandler,
+            $this->streamOpener,
             $this->canonicaliser,
             $this->realpathCachePool,
             $this->statCachePool,
@@ -107,7 +111,7 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             realpathCacheKey: 'my_realpath_cache_key',
             statCacheKey: 'my_stat_cache_key',
             cacheNonExistentFiles: true,
-            pathFilter: new FileFilter('*')
+            pathFilter: new FileFilter('/my/**')
         );
     }
 
@@ -150,6 +154,7 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
         $path = '/my/non/existent/path';
         $this->fsCachingStreamHandler = new FsCachingStreamHandler(
             $this->wrappedStreamHandler,
+            $this->streamOpener,
             $this->canonicaliser,
             $this->realpathCachePool,
             $this->statCachePool,
@@ -157,11 +162,28 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             realpathCacheKey: 'my_realpath_cache_key',
             statCacheKey: 'my_stat_cache_key',
             cacheNonExistentFiles: false, // Disable caching of non-existent files.
-            pathFilter: new FileFilter('*')
+            pathFilter: new FileFilter('**')
         );
 
         static::assertNull($this->fsCachingStreamHandler->getRealpath($path));
         static::assertNull($this->fsCachingStreamHandler->getRealpathCacheEntry($path));
+    }
+
+    public function testInvalidatePathInvalidatesContentsCacheWhenMatchedByPathFilter(): void
+    {
+        $this->contentsCache->expects()
+            ->invalidatePath('/my/path/to/my_file.txt')
+            ->once();
+
+        $this->fsCachingStreamHandler->invalidatePath('/my/path/to/my_file.txt');
+    }
+
+    public function testInvalidatePathDoesNotInvalidateContentsCacheWhenIgnoredByPathFilter(): void
+    {
+        $this->contentsCache->expects('invalidatePath')
+            ->never();
+
+        $this->fsCachingStreamHandler->invalidatePath('/your/path/to/my_file.txt');
     }
 
     public function testPersistStatCachePersistsBothStatTypeCachesWhenDirty(): void
@@ -191,6 +213,58 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             ->never();
 
         $this->fsCachingStreamHandler->persistStatCache();
+    }
+
+    public function testStreamOpenForwardsToWrappedHandlerWhenIgnoredByPathFilter(): void
+    {
+        $openedPath = null;
+        $this->wrappedStreamHandler->allows()
+            ->streamOpen(
+                $this->streamWrapper,
+                // Use `/your/**` path so that configured path filter is not matched.
+                '/your/path/to/my_file.php',
+                'r',
+                0,
+                $openedPath
+            )
+            ->andReturn(['resource' => 21, 'isInclude' => true]);
+
+        static::assertEquals(
+            ['resource' => 21, 'isInclude' => true],
+            $this->fsCachingStreamHandler->streamOpen(
+                $this->streamWrapper,
+                '/your/path/to/my_file.php',
+                'r',
+                0,
+                $openedPath
+            )
+        );
+    }
+
+    public function testStreamOpenForwardsToStreamOpenerWhenMatchedByPathFilter(): void
+    {
+        $openedPath = null;
+        $this->streamOpener->allows()
+            ->openStream(
+                $this->streamWrapper,
+                '/my/path/to/my_file.php',
+                'r',
+                0,
+                $openedPath,
+                $this->fsCachingStreamHandler
+            )
+            ->andReturn(['resource' => 21, 'isInclude' => true]);
+
+        static::assertEquals(
+            ['resource' => 21, 'isInclude' => true],
+            $this->fsCachingStreamHandler->streamOpen(
+                $this->streamWrapper,
+                '/my/path/to/my_file.php',
+                'r',
+                0,
+                $openedPath
+            )
+        );
     }
 
     public function testStreamStatRetrievesACachedIncludeStat(): void

@@ -17,6 +17,7 @@ use Asmblah\PhpCodeShift\CodeShift;
 use Asmblah\PhpCodeShift\CodeShiftInterface;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
+use Nytris\Boost\Environment\Environment;
 use Nytris\Boost\FsCache\Canonicaliser;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\FsCache;
@@ -72,12 +73,12 @@ class Boost implements BoostInterface
         /**
          * Filter for which file paths to cache in the realpath, stat and contents caches.
          */
-        FileFilterInterface $pathFilter = new FileFilter('*')
+        FileFilterInterface $pathFilter = new FileFilter('**')
     ) {
         $this->codeShift = $codeShift ?? new CodeShift();
         $this->fsCache = $fsCache ?? new FsCache(
             $this->codeShift,
-            new FsCacheFactory(new Canonicaliser()),
+            new FsCacheFactory(new Canonicaliser(new Environment())),
             $realpathCachePool,
             $statCachePool,
             $contentsCache,

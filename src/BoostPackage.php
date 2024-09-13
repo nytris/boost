@@ -69,7 +69,7 @@ class BoostPackage implements BoostPackageInterface
         /**
          * Filter for which file paths to cache in the realpath, stat and contents caches.
          */
-        private readonly FileFilterInterface $pathFilter = new FileFilter('*')
+        private readonly FileFilterInterface $pathFilter = new FileFilter('**')
     ) {
     }
 

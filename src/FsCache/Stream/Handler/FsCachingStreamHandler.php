@@ -20,6 +20,7 @@ use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
 use LogicException;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
+use Nytris\Boost\FsCache\Stream\Opener\StreamOpenerInterface;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -57,6 +58,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
 
     public function __construct(
         StreamHandlerInterface $wrappedStreamHandler,
+        private readonly StreamOpenerInterface $streamOpener,
         private readonly CanonicaliserInterface $canonicaliser,
         private readonly ?CacheItemPoolInterface $realpathCachePool,
         private readonly ?CacheItemPoolInterface $statCachePool,
@@ -120,7 +122,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function getEventualPath(string $path): string
     {
-        $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
+        $canonicalPath = $this->canonicaliser->canonicalise($path);
 
         $entry = $this->realpathCache[$canonicalPath] ?? null;
         $realpath = $entry['realpath'] ?? null;
@@ -135,7 +137,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
 
             if ($resolvedPath !== false) {
                 // Link target may not be canonical, so we must canonicalise again.
-                $resolvedPath = $this->canonicaliser->canonicalise($resolvedPath, getcwd());
+                $resolvedPath = $this->canonicaliser->canonicalise($resolvedPath);
             } else {
                 $resolvedPath = $canonicalPath;
             }
@@ -168,7 +170,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         }
 
         if ($realpath === null) {
-            $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
+            $canonicalPath = $this->canonicaliser->canonicalise($path);
 
             if ($path !== $canonicalPath) {
                 // Path is not canonical, add pointer entry targeting the canonical one.
@@ -187,7 +189,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
                     $symlinkTarget = readlink($path);
 
                     if ($symlinkTarget !== false) {
-                        $canonicalSymlinkTarget = $this->canonicaliser->canonicalise($symlinkTarget, getcwd());
+                        $canonicalSymlinkTarget = $this->canonicaliser->canonicalise($symlinkTarget);
 
                         $this->realpathCache[$canonicalPath] = [
                             'symlink' => $canonicalSymlinkTarget,
@@ -281,9 +283,14 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function invalidatePath(string $path): void
     {
+        if (!$this->pathFilter->fileMatches($path)) {
+            // Path is excluded from cache, so ignore.
+            return;
+        }
+
         // Clear the canonical path entries (which may be pointed to by some symbolic path entries -
         // this action will effectively invalidate those too).
-        $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
+        $canonicalPath = $this->canonicaliser->canonicalise($path);
 
         unset(
             $this->realpathCache[$canonicalPath],
@@ -302,6 +309,8 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
 
         $this->realpathCacheIsDirty = true;
         $this->statCacheIsDirty = true;
+
+        $this->contentsCache?->invalidatePath($path);
     }
 
     /**
@@ -394,96 +403,14 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             );
         }
 
-        $isRead = str_contains($mode, 'r') && !str_contains($mode, '+');
-
-        if ($isRead) {
-            $effectivePath = $this->getRealpath($path);
-
-            if ($effectivePath === null) {
-                return null;
-            }
-        } else {
-            $effectivePath = $path;
-
-            // File is being written to, so clear cache (e.g. in case it was cached as non-existent).
-            $this->invalidatePath($effectivePath);
-        }
-
-        if ($this->contentsCache === null) {
-            // Contents cache is disabled, so ignore.
-            return $this->wrappedStreamHandler->streamOpen($streamWrapper, $effectivePath, $mode, $options, $openedPath);
-        }
-
-        if (!$isRead) {
-            // We are opening for write, so invalidate any cache entries for plain or include (shifted) versions
-            // to ensure writes are picked up in future and then ignore.
-            $this->contentsCache->invalidatePath($effectivePath);
-
-            return $this->wrappedStreamHandler->streamOpen($streamWrapper, $effectivePath, $mode, $options, $openedPath);
-        }
-
-        $isInclude = $this->wrappedStreamHandler->isInclude($options);
-
-        $cachedFile = $this->contentsCache->getItemForPath($effectivePath, $isInclude);
-
-        if ($cachedFile->isCached()) {
-            // File's contents are cached, so we can serve it without hitting the filesystem.
-
-            $cacheStream = fopen('php://memory', 'rb+');
-            $contents = $cachedFile->getContents();
-
-            fwrite($cacheStream, $contents);
-            rewind($cacheStream);
-
-            if ($isInclude) {
-                /*
-                 * Populate the stat cache for the include if it hasn't already been.
-                 *
-                 * See notes in `->synthesiseIncludeStat(...)`.
-                 */
-                $this->synthesiseIncludeStat($effectivePath, strlen($contents));
-            }
-
-            $usePath = (bool) ($options & STREAM_USE_PATH);
-
-            if ($usePath && $openedPath) {
-                // This is usually done by the original StreamHandler, but when contents are cached
-                // we do not return to there.
-                $openedPath = $effectivePath;
-            }
-
-            return ['resource' => $cacheStream, 'isInclude' => $isInclude];
-        }
-
-        // Contents are not yet cached - forward to the wrapped handler,
-        // which will also apply any applicable shifts.
-        $result = $this->wrappedStreamHandler->streamOpen(
+        return $this->streamOpener->openStream(
             $streamWrapper,
-            $effectivePath,
+            $path,
             $mode,
             $options,
-            $openedPath
+            $openedPath,
+            $this
         );
-        $sourceStream = $result['resource'];
-
-        $contents = stream_get_contents($sourceStream);
-
-        // Now rewind the stream after reading its contents just above,
-        // so that it can be reused for the current stream wrapper.
-        rewind($sourceStream);
-
-        $cachedFile->setContents($contents);
-
-        if ($isInclude) {
-            /*
-             * Populate the stat cache for the include if it hasn't already been.
-             *
-             * See notes in `->synthesiseIncludeStat(...)`.
-             */
-            $this->synthesiseIncludeStat($effectivePath, strlen($contents));
-        }
-
-        return $result;
     }
 
     /**
@@ -529,15 +456,10 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         return $stat;
     }
 
-    /*
-     * Populates the stat cache for an include if it hasn't already been.
-     *
-     * In particular, we need:
-     * - The size to match that of the shifted code (if applicable) and not the original,
-     * - Timestamps to match, as OPcache won't cache streams with a modification date
-     *   after script start if `opcache.file_update_protection` is enabled.
+    /**
+     * @inheritDoc
      */
-    private function synthesiseIncludeStat(string $realpath, int $size): void
+    public function synthesiseIncludeStat(string $realpath, int $size): void
     {
         if (array_key_exists($realpath, $this->statCacheForIncludes)) {
             // Already cached.
@@ -615,7 +537,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         if ($isLinkStat) {
             // Link status fetches (lstat()s) stat the symlink file itself (if one exists at the given path)
             // vs. stat() which stats the eventual file that the symlink points to.
-            $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
+            $canonicalPath = $this->canonicaliser->canonicalise($path);
 
             $entry = $this->realpathCache[$canonicalPath] ?? null;
 

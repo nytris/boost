@@ -18,6 +18,7 @@ use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
+use Nytris\Boost\FsCache\Stream\Opener\StreamOpener;
 use Psr\Cache\CacheItemPoolInterface;
 
 /**
@@ -52,6 +53,11 @@ class FsCacheFactory implements FsCacheFactoryInterface
     ): FsCachingStreamHandlerInterface {
         return new FsCachingStreamHandler(
             $originalStreamHandler,
+            new StreamOpener(
+                $originalStreamHandler,
+                $this->canonicaliser,
+                $contentsCache
+            ),
             $this->canonicaliser,
             $realpathCachePool,
             $statCachePool,
