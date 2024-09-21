@@ -98,6 +98,20 @@ class BoostPackageTest extends AbstractTestCase
         static::assertNull($package->getStatCachePool('/my/cache/path'));
     }
 
+    public function testIsVirtualFilesystemReturnsTrueWhenSet(): void
+    {
+        $package = new BoostPackage(asVirtualFilesystem: true);
+
+        static::assertTrue($package->isVirtualFilesystem());
+    }
+
+    public function testIsVirtualFilesystemReturnsFalseWhenSet(): void
+    {
+        $package = new BoostPackage(asVirtualFilesystem: false);
+
+        static::assertFalse($package->isVirtualFilesystem());
+    }
+
     public function testShouldCacheNonExistentFilesReturnsTrueWhenSet(): void
     {
         $package = new BoostPackage(cacheNonExistentFiles: true);

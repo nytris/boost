@@ -33,6 +33,12 @@ interface BoostPackageInterface extends PackageInterface
     public function getContentsCache(string $boostCachePath): ?ContentsCacheInterface;
 
     /**
+     * Fetches the filter for which files to hook built-in functions
+     * such as `clearstatcache(...)`. for, or null to disable.
+     */
+    public function getHookBuiltinFunctionsFilter(): ?FileFilterInterface;
+
+    /**
      * Fetches the filter for which file paths to cache.
      */
     public function getPathFilter(): FileFilterInterface;
@@ -64,12 +70,13 @@ interface BoostPackageInterface extends PackageInterface
     public function getStatCachePool(string $boostCachePath): ?CacheItemPoolInterface;
 
     /**
+     * In virtual-filesystem mode, the cache is write-allocate with no write-through
+     * to the next stream handler in the chain (usually the original one, which persists to disk).
+     */
+    public function isVirtualFilesystem(): bool;
+
+    /**
      * Fetches whether the non-existence of files should be cached in the realpath cache.
      */
     public function shouldCacheNonExistentFiles(): bool;
-
-    /**
-     * Fetches whether to hook built-in functions such as `clearstatcache(...)`.
-     */
-    public function shouldHookBuiltinFunctions(): bool;
 }

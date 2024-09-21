@@ -31,6 +31,13 @@ interface FsCacheInterface
     public function install(): void;
 
     /**
+     * Clears the realpath and stat caches.
+     *
+     * Note that this does not affect the contents cache.
+     */
+    public function invalidateCaches(): void;
+
+    /**
      * Uninstalls the filesystem cache.
      */
     public function uninstall(): void;

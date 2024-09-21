@@ -26,4 +26,24 @@ interface EnvironmentInterface
      * Fetches the current working directory.
      */
     public function getCwd(): string;
+
+    /**
+     * Fetches the group ID for the given POSIX group name.
+     */
+    public function getGroupIdFromName(string $groupName): ?int;
+
+    /**
+     * Fetches the Unix timestamp of program start with microseconds.
+     */
+    public function getStartTime(): float;
+
+    /**
+     * Fetches the current Unix timestamp with microseconds.
+     */
+    public function getTime(): float;
+
+    /**
+     * Fetches the user ID for the given POSIX username.
+     */
+    public function getUserIdFromName(string $username): ?int;
 }

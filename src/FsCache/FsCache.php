@@ -13,11 +13,9 @@ declare(strict_types=1);
 
 namespace Nytris\Boost\FsCache;
 
-use Asmblah\PhpCodeShift\CodeShiftInterface;
 use Asmblah\PhpCodeShift\Shifter\Filter\ExceptFilter;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
-use Asmblah\PhpCodeShift\Shifter\Shift\Shift\FunctionHook\FunctionHookShiftSpec;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\StreamWrapperManager;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
@@ -37,7 +35,6 @@ class FsCache implements FsCacheInterface
     private ?StreamHandlerInterface $originalStreamHandler;
 
     public function __construct(
-        private readonly CodeShiftInterface $codeShift,
         private readonly FsCacheFactoryInterface $fsCacheFactory,
         private readonly ?CacheItemPoolInterface $realpathCachePool,
         private readonly ?CacheItemPoolInterface $statCachePool,
@@ -45,14 +42,11 @@ class FsCache implements FsCacheInterface
         private readonly string $realpathCacheKey,
         private readonly string $statCacheKey,
         /**
-         * Whether to hook built-in functions such as `clearstatcache(...)`.
-         */
-        private readonly bool $hookBuiltinFunctions,
-        /**
          * Whether the non-existence of files should be cached in the realpath cache.
          */
         private readonly bool $cacheNonExistentFiles,
-        private readonly FileFilterInterface $pathFilter
+        private readonly FileFilterInterface $pathFilter,
+        private readonly bool $asVirtualFilesystem
     ) {
         /**
          * To reduce I/O, defer PSR cache persistence (if enabled)
@@ -82,23 +76,19 @@ class FsCache implements FsCacheInterface
             new ExceptFilter(
                 new FileFilter(dirname(__DIR__) . '/**'),
                 $this->pathFilter
-            )
+            ),
+            $this->asVirtualFilesystem
         );
 
-        if ($this->hookBuiltinFunctions) {
-            // Hook the `clearstatcache()` function and simply have it fully clear both caches for now.
-            // TODO: Implement parameters.
-            $this->codeShift->shift(
-                new FunctionHookShiftSpec(
-                    'clearstatcache',
-                    fn () => function (): void {
-                        $this->fsCachingStreamHandler->invalidateCaches();
-                    }
-                )
-            );
-        }
-
         StreamWrapperManager::setStreamHandler($this->fsCachingStreamHandler);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function invalidateCaches(): void
+    {
+        $this->fsCachingStreamHandler->invalidateCaches();
     }
 
     /**

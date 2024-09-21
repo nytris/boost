@@ -13,16 +13,15 @@ declare(strict_types=1);
 
 namespace Nytris\Boost;
 
-use Asmblah\PhpCodeShift\CodeShift;
-use Asmblah\PhpCodeShift\CodeShiftInterface;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
-use Nytris\Boost\Environment\Environment;
 use Nytris\Boost\FsCache\Canonicaliser;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\FsCache;
 use Nytris\Boost\FsCache\FsCacheFactory;
 use Nytris\Boost\FsCache\FsCacheInterface;
+use Nytris\Boost\Library\Library;
+use Nytris\Boost\Library\LibraryInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
 /**
@@ -34,11 +33,16 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 class Boost implements BoostInterface
 {
-    private readonly CodeShiftInterface $codeShift;
     private readonly FsCacheInterface $fsCache;
+    private readonly ?FileFilterInterface $hookBuiltinFunctionsFilter;
+    private readonly LibraryInterface $library;
 
     public function __construct(
-        ?CodeShiftInterface $codeShift = null,
+        /**
+         * When standalone, a library will be created here if not provided.
+         * When installed as a Nytris package, Charge provides a single shared Library instance.
+         */
+        ?LibraryInterface $library = null,
         ?FsCacheInterface $fsCache = null,
         /**
          * Cache pool in which to persist the realpath cache.
@@ -59,7 +63,7 @@ class Boost implements BoostInterface
         /**
          * Whether to hook built-in functions such as clearstatcache(...).
          */
-        bool $hookBuiltinFunctions = true,
+        FileFilterInterface|bool $hookBuiltinFunctions = true,
         /**
          * Whether the non-existence of files should be cached in the realpath cache.
          */
@@ -73,20 +77,34 @@ class Boost implements BoostInterface
         /**
          * Filter for which file paths to cache in the realpath, stat and contents caches.
          */
-        FileFilterInterface $pathFilter = new FileFilter('**')
+        FileFilterInterface $pathFilter = new FileFilter('**'),
+        /**
+         * In virtual-filesystem mode, the cache is write-allocate with no write-through
+         * to the next stream handler in the chain (usually the original one, which persists to disk).
+         */
+        bool $asVirtualFilesystem = false
     ) {
-        $this->codeShift = $codeShift ?? new CodeShift();
+        $library ??= new Library();
+        $this->library = $library;
+
+        $this->hookBuiltinFunctionsFilter = match ($hookBuiltinFunctions) {
+            true => new FileFilter('**'),
+            false => null,
+            default => $hookBuiltinFunctions,
+        };
+
+        $environment = $library->getEnvironment();
+
         $this->fsCache = $fsCache ?? new FsCache(
-            $this->codeShift,
-            new FsCacheFactory(new Canonicaliser(new Environment())),
+            new FsCacheFactory($environment, new Canonicaliser($environment)),
             $realpathCachePool,
             $statCachePool,
             $contentsCache,
             $realpathCacheKey,
             $statCacheKey,
-            $hookBuiltinFunctions,
             $cacheNonExistentFiles,
-            $pathFilter
+            $pathFilter,
+            $asVirtualFilesystem
         );
     }
 
@@ -95,9 +113,21 @@ class Boost implements BoostInterface
      */
     public function install(): void
     {
+        if ($this->hookBuiltinFunctionsFilter !== null) {
+            $this->library->hookBuiltinFunctions($this->hookBuiltinFunctionsFilter);
+        }
+
         $this->fsCache->install();
 
-        $this->codeShift->install();
+        $this->library->addBoost($this);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function invalidateCaches(): void
+    {
+        $this->fsCache->invalidateCaches();
     }
 
     /**
@@ -105,8 +135,8 @@ class Boost implements BoostInterface
      */
     public function uninstall(): void
     {
-        $this->fsCache->uninstall();
+        $this->library->removeBoost($this);
 
-        $this->codeShift->uninstall();
+        $this->fsCache->uninstall();
     }
 }

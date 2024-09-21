@@ -29,6 +29,8 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 class BoostPackage implements BoostPackageInterface
 {
+    private readonly ?FileFilterInterface $hookBuiltinFunctionsFilter;
+
     public function __construct(
         /**
          * Cache pool in which to persist the realpath cache.
@@ -53,7 +55,7 @@ class BoostPackage implements BoostPackageInterface
         /**
          * Whether to hook built-in functions such as `clearstatcache(...)`.
          */
-        private readonly bool $hookBuiltinFunctions = true,
+        FileFilterInterface|bool $hookBuiltinFunctions = true,
         /**
          * Whether the non-existence of files should be cached in the realpath cache.
          */
@@ -69,8 +71,18 @@ class BoostPackage implements BoostPackageInterface
         /**
          * Filter for which file paths to cache in the realpath, stat and contents caches.
          */
-        private readonly FileFilterInterface $pathFilter = new FileFilter('**')
+        private readonly FileFilterInterface $pathFilter = new FileFilter('**'),
+        /**
+         * In virtual-filesystem mode, the cache is write-allocate with no write-through
+         * to the next stream handler in the chain (usually the original one, which persists to disk).
+         */
+        private readonly bool $asVirtualFilesystem = false
     ) {
+        $this->hookBuiltinFunctionsFilter = match ($hookBuiltinFunctions) {
+            true => new FileFilter('**'),
+            false => null,
+            default => $hookBuiltinFunctions,
+        };
     }
 
     /**
@@ -81,6 +93,14 @@ class BoostPackage implements BoostPackageInterface
         return $this->contentsCacheFactory !== null ?
             ($this->contentsCacheFactory)($boostCachePath) :
             null;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getHookBuiltinFunctionsFilter(): ?FileFilterInterface
+    {
+        return $this->hookBuiltinFunctionsFilter;
     }
 
     /**
@@ -138,16 +158,16 @@ class BoostPackage implements BoostPackageInterface
     /**
      * @inheritDoc
      */
-    public function shouldCacheNonExistentFiles(): bool
+    public function isVirtualFilesystem(): bool
     {
-        return $this->cacheNonExistentFiles;
+        return $this->asVirtualFilesystem;
     }
 
     /**
      * @inheritDoc
      */
-    public function shouldHookBuiltinFunctions(): bool
+    public function shouldCacheNonExistentFiles(): bool
     {
-        return $this->hookBuiltinFunctions;
+        return $this->cacheNonExistentFiles;
     }
 }

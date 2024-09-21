@@ -28,6 +28,13 @@ interface BoostInterface
     public function install(): void;
 
     /**
+     * Clears the realpath and stat caches.
+     *
+     * Note that this does not affect the contents cache.
+     */
+    public function invalidateCaches(): void;
+
+    /**
      * Uninstalls Nytris Boost.
      */
     public function uninstall(): void;

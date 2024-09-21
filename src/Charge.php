@@ -76,18 +76,24 @@ class Charge implements ChargeInterface
             );
         }
 
-        self::$library = new Library(
-            new Boost(
-                realpathCachePool: $package->getRealpathCachePool($packageContext->getPackageCachePath()),
-                statCachePool: $package->getStatCachePool($packageContext->getPackageCachePath()),
-                realpathCacheKey: $package->getRealpathCacheKey(),
-                statCacheKey: $package->getStatCacheKey(),
-                hookBuiltinFunctions: $package->shouldHookBuiltinFunctions(),
-                cacheNonExistentFiles: $package->shouldCacheNonExistentFiles(),
-                contentsCache: $package->getContentsCache($packageContext->getPackageCachePath()),
-                pathFilter: $package->getPathFilter()
-            )
+        if (self::$library === null) {
+            self::$library = new Library();
+        }
+
+        $boost = new Boost(
+            library: self::$library,
+            realpathCachePool: $package->getRealpathCachePool($packageContext->getPackageCachePath()),
+            statCachePool: $package->getStatCachePool($packageContext->getPackageCachePath()),
+            realpathCacheKey: $package->getRealpathCacheKey(),
+            statCacheKey: $package->getStatCacheKey(),
+            hookBuiltinFunctions: $package->getHookBuiltinFunctionsFilter() ?? false,
+            cacheNonExistentFiles: $package->shouldCacheNonExistentFiles(),
+            contentsCache: $package->getContentsCache($packageContext->getPackageCachePath()),
+            pathFilter: $package->getPathFilter(),
+            asVirtualFilesystem: $package->isVirtualFilesystem()
         );
+
+        $boost->install();
     }
 
     /**

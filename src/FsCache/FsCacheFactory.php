@@ -15,7 +15,10 @@ namespace Nytris\Boost\FsCache;
 
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
+use Nytris\Boost\Environment\EnvironmentInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
+use Nytris\Boost\FsCache\Realpath\RealpathCache;
+use Nytris\Boost\FsCache\Stat\StatCache;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
 use Nytris\Boost\FsCache\Stream\Opener\StreamOpener;
@@ -31,6 +34,7 @@ use Psr\Cache\CacheItemPoolInterface;
 class FsCacheFactory implements FsCacheFactoryInterface
 {
     public function __construct(
+        private readonly EnvironmentInterface $environment,
         private readonly CanonicaliserInterface $canonicaliser
     ) {
     }
@@ -49,23 +53,43 @@ class FsCacheFactory implements FsCacheFactoryInterface
          * Whether the non-existence of files should be cached in the realpath cache.
          */
         bool $cacheNonExistentFiles,
-        FileFilterInterface $pathFilter
+        FileFilterInterface $pathFilter,
+        bool $asVirtualFilesystem
     ): FsCachingStreamHandlerInterface {
-        return new FsCachingStreamHandler(
+        $realpathCache = new RealpathCache(
             $originalStreamHandler,
-            new StreamOpener(
-                $originalStreamHandler,
-                $this->canonicaliser,
-                $contentsCache
-            ),
             $this->canonicaliser,
             $realpathCachePool,
-            $statCachePool,
-            $contentsCache,
             $realpathCacheKey,
-            $statCacheKey,
             $cacheNonExistentFiles,
-            $pathFilter
+            $asVirtualFilesystem
+        );
+        $statCache = new StatCache(
+            $originalStreamHandler,
+            $this->environment,
+            $this->canonicaliser,
+            $realpathCache,
+            $statCachePool,
+            $statCacheKey,
+            $asVirtualFilesystem
+        );
+        $streamOpener = new StreamOpener(
+            $originalStreamHandler,
+            $realpathCache,
+            $statCache,
+            $contentsCache,
+            $asVirtualFilesystem
+        );
+
+        return new FsCachingStreamHandler(
+            $originalStreamHandler,
+            $this->environment,
+            $streamOpener,
+            $realpathCache,
+            $statCache,
+            $contentsCache,
+            $pathFilter,
+            $asVirtualFilesystem
         );
     }
 }

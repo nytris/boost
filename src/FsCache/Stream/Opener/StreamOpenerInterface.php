@@ -14,7 +14,6 @@ declare(strict_types=1);
 namespace Nytris\Boost\FsCache\Stream\Opener;
 
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
-use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
 
 /**
  * Interface StreamOpenerInterface.
@@ -25,6 +24,13 @@ use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
  */
 interface StreamOpenerInterface
 {
+    /**
+     * Flushes an open stream.
+     */
+    public function flushStream(
+        StreamWrapperInterface $streamWrapper
+    ): bool;
+
     /**
      * Opens a stream to the given file.
      *
@@ -38,7 +44,6 @@ interface StreamOpenerInterface
         string $path,
         string $mode,
         int $options,
-        ?string &$openedPath,
-        FsCachingStreamHandlerInterface $streamHandler
+        ?string &$openedPath
     ): ?array;
 }

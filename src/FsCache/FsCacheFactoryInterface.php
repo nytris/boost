@@ -39,6 +39,7 @@ interface FsCacheFactoryInterface
         string $realpathCacheKey,
         string $statCacheKey,
         bool $cacheNonExistentFiles,
-        FileFilterInterface $pathFilter
+        FileFilterInterface $pathFilter,
+        bool $asVirtualFilesystem
     ): FsCachingStreamHandlerInterface;
 }

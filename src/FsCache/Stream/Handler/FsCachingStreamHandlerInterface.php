@@ -46,15 +46,6 @@ interface FsCachingStreamHandlerInterface extends StreamHandlerInterface
     public function getRealpath(string $path): ?string;
 
     /**
-     * Fetches the realpath cache entry for the given path if cached,
-     * or null otherwise.
-     *
-     * @param string $path
-     * @return RealpathCacheEntry|null
-     */
-    public function getRealpathCacheEntry(string $path): ?array;
-
-    /**
      * Clears the realpath and stat caches.
      *
      * Note that this does not affect the contents cache.
@@ -75,14 +66,4 @@ interface FsCachingStreamHandlerInterface extends StreamHandlerInterface
      * Persists the current stat cache via configured PSR cache.
      */
     public function persistStatCache(): void;
-
-    /**
-     * Populates the stat cache for an include if it hasn't already been.
-     *
-     * In particular, we need:
-     * - The size to match that of the shifted code (if applicable) and not the original,
-     * - Timestamps to match, as OPcache won't cache streams with a modification date
-     *   after script start if `opcache.file_update_protection` is enabled.
-     */
-    public function synthesiseIncludeStat(string $realpath, int $size): void;
 }

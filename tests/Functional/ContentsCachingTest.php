@@ -14,6 +14,7 @@ declare(strict_types=1);
 namespace Nytris\Boost\Tests\Functional;
 
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
+use Asmblah\PhpCodeShift\Shifter\Filter\MultipleFilter;
 use Mockery\MockInterface;
 use Nytris\Boost\Boost;
 use Nytris\Boost\FsCache\Contents\CachedFileInterface;
@@ -111,7 +112,10 @@ class ContentsCachingTest extends AbstractFunctionalTestCase
             statCacheKey: '__my_stat_cache',
             contentsCache: $this->contentsCache,
             // Avoid affecting test harness filesystem access, e.g. when autoloading Mockery classes.
-            pathFilter: new FileFilter('/my/**')
+            pathFilter: new MultipleFilter([
+                new FileFilter('/my/**'),
+                new FileFilter(__DIR__ . '/Fixtures/**'),
+            ])
         );
 
         $this->realpathCachePool->allows()
@@ -203,7 +207,7 @@ class ContentsCachingTest extends AbstractFunctionalTestCase
         $phpFile = mock(CachedFileInterface::class, [
             'isCached' => false,
         ]);
-        $imaginaryPath = '/my/path/to/my_module.php';
+        $imaginaryPath = '/my/imaginary/path/to/my_module.php';
         $actualPath = __DIR__ . '/Fixtures/my_actual_file.php';
         $this->realpathCacheItem->allows()
             ->get()
