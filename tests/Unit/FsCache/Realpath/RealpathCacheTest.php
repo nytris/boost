@@ -150,4 +150,23 @@ class RealpathCacheTest extends AbstractTestCase
 
         $this->realpathCache->persistRealpathCache();
     }
+
+    public function testSetBackingCacheEntryStoresInMemoryCache(): void
+    {
+        $item = mock(CacheItemInterface::class, [
+            'isHit' => false,
+            'set' => null,
+        ]);
+        $this->realpathCachePool->allows()
+            ->getItem('canonicalised--_my_real_path')
+            ->andReturn($item);
+        $this->realpathCachePool->allows('saveDeferred');
+
+        $this->realpathCache->setBackingCacheEntry('/my/real/path', ['my' => 'entry']);
+
+        static::assertEquals(
+            ['my' => 'entry'],
+            $this->realpathCache->getBackingCacheEntry('/my/real/path')
+        );
+    }
 }

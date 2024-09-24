@@ -83,7 +83,7 @@ class RealpathCache implements RealpathCacheInterface
      * @param string $realpath
      * @return array<mixed>|null
      */
-    private function getBackingCacheEntry(string $realpath): ?array
+    public function getBackingCacheEntry(string $realpath): ?array
     {
         if (array_key_exists($realpath, $this->realpathEntryCache)) {
             return $this->realpathEntryCache[$realpath];
@@ -326,7 +326,7 @@ class RealpathCache implements RealpathCacheInterface
      * @param string $realpath
      * @param array<mixed> $entry
      */
-    private function setBackingCacheEntry(string $realpath, array $entry): void
+    public function setBackingCacheEntry(string $realpath, array $entry): void
     {
         $realpathCacheItem = $this->realpathCachePool->getItem(
             $this->canonicaliser->canonicaliseCacheKey($realpath)
@@ -334,5 +334,7 @@ class RealpathCache implements RealpathCacheInterface
 
         $realpathCacheItem->set($entry);
         $this->realpathCachePool->saveDeferred($realpathCacheItem);
+
+        $this->realpathEntryCache[$realpath] = $entry;
     }
 }
