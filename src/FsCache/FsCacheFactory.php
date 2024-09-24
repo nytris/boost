@@ -44,23 +44,21 @@ class FsCacheFactory implements FsCacheFactoryInterface
      */
     public function createStreamHandler(
         StreamHandlerInterface $originalStreamHandler,
-        ?CacheItemPoolInterface $realpathCachePool,
-        ?CacheItemPoolInterface $statCachePool,
+        CacheItemPoolInterface $realpathCachePool,
+        CacheItemPoolInterface $statCachePool,
         ?ContentsCacheInterface $contentsCache,
         string $realpathCacheKey,
         string $statCacheKey,
-        /**
-         * Whether the non-existence of files should be cached in the realpath cache.
-         */
         bool $cacheNonExistentFiles,
         FileFilterInterface $pathFilter,
         bool $asVirtualFilesystem
     ): FsCachingStreamHandlerInterface {
+        // TODO: Remove now-unused $realpathCacheKey & $statCacheKey on next breaking 0.x bump.
+
         $realpathCache = new RealpathCache(
             $originalStreamHandler,
             $this->canonicaliser,
             $realpathCachePool,
-            $realpathCacheKey,
             $cacheNonExistentFiles,
             $asVirtualFilesystem
         );
@@ -70,7 +68,6 @@ class FsCacheFactory implements FsCacheFactoryInterface
             $this->canonicaliser,
             $realpathCache,
             $statCachePool,
-            $statCacheKey,
             $asVirtualFilesystem
         );
         $streamOpener = new StreamOpener(

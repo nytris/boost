@@ -19,7 +19,7 @@ jobs:
         with:
           php-version: ${{ matrix.php-version }}
           # Ensure ext-opcache is installed for running tests against.
-          extensions: ':opcache'
+          extensions: 'opcache'
 
       - name: Install Composer dependencies
         run: composer install

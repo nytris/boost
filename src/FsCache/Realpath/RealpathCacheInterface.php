@@ -18,7 +18,6 @@ namespace Nytris\Boost\FsCache\Realpath;
  *
  * Caches realpaths, optionally also to a PSR cache implementation, to improve performance.
  *
- * @phpstan-type RealpathCacheStorage array<string, RealpathCacheEntry>
  * @phpstan-type RealpathCacheEntry array{canonical?: string, exists?: bool, realpath?: string, symlink?: string}
  * @author Dan Phillimore <dan@ovms.co>
  */

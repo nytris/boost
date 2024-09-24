@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 namespace Nytris\Boost;
 
+use Nytris\Boost\Library\LibraryInterface;
+
 /**
  * Interface BoostInterface.
  *
@@ -22,6 +24,11 @@ namespace Nytris\Boost;
  */
 interface BoostInterface
 {
+    /**
+     * Fetches the library installation for this Boost instance.
+     */
+    public function getLibrary(): LibraryInterface;
+
     /**
      * Installs Nytris Boost.
      */

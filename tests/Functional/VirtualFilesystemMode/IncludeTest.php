@@ -49,8 +49,6 @@ class IncludeTest extends AbstractFunctionalTestCase
         $this->boost = new Boost(
             realpathCachePool: $this->realpathCachePool,
             statCachePool: $this->statCachePool,
-            realpathCacheKey: '__my_realpath_cache',
-            statCacheKey: '__my_stat_cache',
             contentsCache: $this->contentsCache,
             // Avoid affecting test harness filesystem access, e.g. when autoloading Mockery classes.
             pathFilter: new FileFilter('/my/**'),

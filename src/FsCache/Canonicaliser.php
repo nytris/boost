@@ -54,4 +54,12 @@ class Canonicaliser implements CanonicaliserInterface
 
         return $path;
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function canonicaliseCacheKey(string $key): string
+    {
+        return hash('sha256', $key);
+    }
 }

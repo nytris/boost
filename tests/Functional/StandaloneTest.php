@@ -14,10 +14,9 @@ declare(strict_types=1);
 namespace Nytris\Boost\Tests\Functional;
 
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapper;
-use Mockery\MockInterface;
 use Nytris\Boost\Boost;
-use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 /**
  * Class StandaloneTest.
@@ -30,48 +29,13 @@ use Psr\Cache\CacheItemPoolInterface;
 class StandaloneTest extends AbstractFunctionalTestCase
 {
     private ?Boost $boost = null;
-    private MockInterface&CacheItemInterface $realpathCacheItem;
-    private MockInterface&CacheItemPoolInterface $realpathCachePool;
-    private MockInterface&CacheItemInterface $statCacheItemForIncludes;
-    private MockInterface&CacheItemInterface $statCacheItemForNonIncludes;
-    private MockInterface&CacheItemPoolInterface $statCachePool;
+    private CacheItemPoolInterface $realpathCachePool;
+    private CacheItemPoolInterface $statCachePool;
 
     public function setUp(): void
     {
-        $this->realpathCachePool = mock(CacheItemPoolInterface::class, [
-            'saveDeferred' => null,
-        ]);
-        $this->statCachePool = mock(CacheItemPoolInterface::class, [
-            'saveDeferred' => null,
-        ]);
-        $this->realpathCacheItem = mock(CacheItemInterface::class, [
-            'get' => [],
-            'isHit' => true,
-            'set' => null,
-        ]);
-        $this->statCacheItemForIncludes = mock(CacheItemInterface::class, [
-            'get' => [],
-            'isHit' => true,
-            'set' => null,
-        ]);
-        $this->statCacheItemForNonIncludes = mock(CacheItemInterface::class, [
-            'get' => [],
-            'isHit' => true,
-            'set' => null,
-        ]);
-
-        $this->realpathCachePool->allows()
-            ->getItem('__my_realpath_cache')
-            ->andReturn($this->realpathCacheItem)
-            ->byDefault();
-        $this->statCachePool->allows()
-            ->getItem('__my_stat_cache_includes')
-            ->andReturn($this->statCacheItemForIncludes)
-            ->byDefault();
-        $this->statCachePool->allows()
-            ->getItem('__my_stat_cache_plain')
-            ->andReturn($this->statCacheItemForNonIncludes)
-            ->byDefault();
+        $this->realpathCachePool = new ArrayAdapter();
+        $this->statCachePool = new ArrayAdapter();
     }
 
     public function tearDown(): void
@@ -83,9 +47,7 @@ class StandaloneTest extends AbstractFunctionalTestCase
     {
         $this->boost = new Boost(
             realpathCachePool: $this->realpathCachePool,
-            statCachePool: $this->statCachePool,
-            realpathCacheKey: '__my_realpath_cache',
-            statCacheKey: '__my_stat_cache'
+            statCachePool: $this->statCachePool
         );
 
         $stream = fopen(__FILE__, 'rb');
@@ -99,9 +61,7 @@ class StandaloneTest extends AbstractFunctionalTestCase
         $path = __FILE__;
         $this->boost = new Boost(
             realpathCachePool: $this->realpathCachePool,
-            statCachePool: $this->statCachePool,
-            realpathCacheKey: '__my_realpath_cache',
-            statCacheKey: '__my_stat_cache'
+            statCachePool: $this->statCachePool
         );
 
         $this->boost->install();

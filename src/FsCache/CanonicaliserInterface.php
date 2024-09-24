@@ -27,4 +27,9 @@ interface CanonicaliserInterface
      * Uses the current working directory for the process if none is specified.
      */
     public function canonicalise(string $path, ?string $cwd = null): string;
+
+    /**
+     * Canonicalises the given cache key, sanitising it for PSR caching.
+     */
+    public function canonicaliseCacheKey(string $key): string;
 }

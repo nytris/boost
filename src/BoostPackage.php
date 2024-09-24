@@ -50,7 +50,13 @@ class BoostPackage implements BoostPackageInterface
          * @var Closure(string): CacheItemPoolInterface
          */
         private readonly ?Closure $statCachePoolFactory = null,
+        /**
+         * @deprecated Unused - use the cache pool namespace.
+         */
         private readonly string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
+        /**
+         * @deprecated Unused - use the cache pool namespace.
+         */
         private readonly string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
         /**
          * Whether to hook built-in functions such as `clearstatcache(...)`.

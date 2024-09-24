@@ -20,6 +20,8 @@ use Asmblah\PhpCodeShift\Shifter\Shift\Shift\FunctionHook\FunctionHookShiftSpec;
 use Nytris\Boost\BoostInterface;
 use Nytris\Boost\Environment\Environment;
 use Nytris\Boost\Environment\EnvironmentInterface;
+use Nytris\Boost\FsCache\Canonicaliser;
+use Nytris\Boost\FsCache\CanonicaliserInterface;
 use SplObjectStorage;
 
 /**
@@ -35,11 +37,15 @@ class Library implements LibraryInterface
      * @var SplObjectStorage<BoostInterface, void>
      */
     private SplObjectStorage $boosts;
+    private readonly CanonicaliserInterface $canonicaliser;
 
     public function __construct(
         private readonly EnvironmentInterface $environment = new Environment(),
+        ?CanonicaliserInterface $canonicaliser = null,
         private readonly CodeShiftInterface $codeShift = new CodeShift()
     ) {
+        $this->canonicaliser = $canonicaliser ?? new Canonicaliser($environment);
+
         $this->boosts = new SplObjectStorage();
     }
 
@@ -53,6 +59,14 @@ class Library implements LibraryInterface
         if (count($this->boosts) === 1) {
             $this->codeShift->install();
         }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getCanonicaliser(): CanonicaliserInterface
+    {
+        return $this->canonicaliser;
     }
 
     /**

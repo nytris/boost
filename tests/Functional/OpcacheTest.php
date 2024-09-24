@@ -19,8 +19,8 @@ use Mockery\MockInterface;
 use Nytris\Boost\Boost;
 use Nytris\Boost\FsCache\Contents\CachedFileInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
-use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 /**
  * Class OpcacheTest.
@@ -38,11 +38,8 @@ class OpcacheTest extends AbstractFunctionalTestCase
     private MockInterface&CachedFileInterface $cachedEmulatedPhpFileForPlainRead;
     private MockInterface&CachedFileInterface $cachedTextFile;
     private MockInterface&ContentsCacheInterface $contentsCache;
-    private MockInterface&CacheItemInterface $realpathCacheItem;
-    private MockInterface&CacheItemPoolInterface $realpathCachePool;
-    private MockInterface&CacheItemInterface $statCacheItemForIncludes;
-    private MockInterface&CacheItemInterface $statCacheItemForNonIncludes;
-    private MockInterface&CacheItemPoolInterface $statCachePool;
+    private CacheItemPoolInterface $realpathCachePool;
+    private CacheItemPoolInterface $statCachePool;
     private string $varPath;
 
     public function setUp(): void
@@ -76,43 +73,8 @@ class OpcacheTest extends AbstractFunctionalTestCase
             'isCached' => true,
         ]);
         $this->contentsCache = mock(ContentsCacheInterface::class);
-        $this->realpathCachePool = mock(CacheItemPoolInterface::class, [
-            'saveDeferred' => null,
-        ]);
-        $this->statCachePool = mock(CacheItemPoolInterface::class, [
-            'saveDeferred' => null,
-        ]);
-        $this->realpathCacheItem = mock(CacheItemInterface::class, [
-            'get' => [
-                '/my/cached/file.txt' => ['realpath' => '/my/cached/file.txt'],
-                '/my/emulated/cached/module.php' => ['realpath' => '/my/emulated/cached/module.php'],
-                __DIR__ . '/Fixtures/my_actual_file.php' => [
-                    'realpath' => __DIR__ . '/Fixtures/my_actual_file.php'
-                ],
-            ],
-            'isHit' => true,
-            'set' => null,
-        ]);
-        $this->statCacheItemForIncludes = mock(CacheItemInterface::class, [
-            'get' => [],
-            'isHit' => true,
-            'set' => null,
-        ]);
-        $this->statCacheItemForNonIncludes = mock(CacheItemInterface::class, [
-            'get' => [
-                '/my/emulated/cached/module.php' => [
-                    'mode' => 0654,
-                    'uid' => 321,
-                    'gid' => 654,
-                    'size' => strlen($this->cachedEmulatedPhpFileForPlainRead->getContents()),
-                    'atime' => 1725558258,
-                    'mtime' => 1725558258,
-                    'ctime' => 1725558258,
-                ],
-            ],
-            'isHit' => true,
-            'set' => null,
-        ]);
+        $this->realpathCachePool = new ArrayAdapter();
+        $this->statCachePool = new ArrayAdapter();
 
         $this->varPath = dirname(__DIR__, 2) . '/var/test';
         @mkdir($this->varPath, recursive: true);
@@ -120,8 +82,6 @@ class OpcacheTest extends AbstractFunctionalTestCase
         $this->boost = new Boost(
             realpathCachePool: $this->realpathCachePool,
             statCachePool: $this->statCachePool,
-            realpathCacheKey: '__my_realpath_cache',
-            statCacheKey: '__my_stat_cache',
             contentsCache: $this->contentsCache,
             // Avoid affecting test harness filesystem access, e.g. when autoloading Mockery classes.
             pathFilter: new MultipleFilter([
@@ -129,19 +89,27 @@ class OpcacheTest extends AbstractFunctionalTestCase
                 new FileFilter(dirname(__DIR__) . '/**'),
             ])
         );
+        $this->canonicaliser = $this->boost->getLibrary()->getCanonicaliser();
 
-        $this->realpathCachePool->allows()
-            ->getItem('__my_realpath_cache')
-            ->andReturn($this->realpathCacheItem)
-            ->byDefault();
-        $this->statCachePool->allows()
-            ->getItem('__my_stat_cache_includes')
-            ->andReturn($this->statCacheItemForIncludes)
-            ->byDefault();
-        $this->statCachePool->allows()
-            ->getItem('__my_stat_cache_plain')
-            ->andReturn($this->statCacheItemForNonIncludes)
-            ->byDefault();
+        $this->setRealpathPsrCacheItem($this->realpathCachePool, '/my/cached/file.txt', [
+            'realpath' => '/my/cached/file.txt',
+        ]);
+        $this->setRealpathPsrCacheItem($this->realpathCachePool, '/my/emulated/cached/module.php', [
+            'realpath' => '/my/emulated/cached/module.php',
+        ]);
+        $this->setRealpathPsrCacheItem($this->realpathCachePool, __DIR__ . '/Fixtures/my_actual_file.php', [
+            'realpath' => __DIR__ . '/Fixtures/my_actual_file.php',
+        ]);
+
+        $this->setStatPsrCacheItem($this->statCachePool, '/my/emulated/cached/module.php', isInclude: false, value: [
+            'mode' => 0654,
+            'uid' => 321,
+            'gid' => 654,
+            'size' => strlen($this->cachedEmulatedPhpFileForPlainRead->getContents()),
+            'atime' => 1725558258,
+            'mtime' => 1725558258,
+            'ctime' => 1725558258,
+        ]);
 
         $this->contentsCache->allows()
             ->getItemForPath('/my/cached/file.txt', false)

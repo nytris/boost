@@ -28,50 +28,65 @@ use Psr\Cache\CacheItemPoolInterface;
  * Caches filesystem stats, optionally also to a PSR cache implementation,
  * to improve performance.
  *
- * @phpstan-import-type StatCacheStorage from StatCacheInterface
  * @phpstan-import-type StatCacheEntry from StatCacheInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 class StatCache implements StatCacheInterface
 {
     private int $startTime;
-    /**
-     * @var StatCacheStorage
-     */
-    private array $statCacheForIncludes = [];
-    /**
-     * @var StatCacheStorage
-     */
-    private array $statCacheForNonIncludes = [];
-    private bool $statCacheIsDirty = false;
-    private ?CacheItemInterface $statCachePoolItemForIncludes = null;
-    private ?CacheItemInterface $statCachePoolItemForNonIncludes = null;
 
     public function __construct(
         private readonly StreamHandlerInterface $wrappedStreamHandler,
         EnvironmentInterface $environment,
         private readonly CanonicaliserInterface $canonicaliser,
         private readonly RealpathCacheInterface $realpathCache,
-        private readonly ?CacheItemPoolInterface $statCachePool,
-        string $statCacheKey,
+        private readonly CacheItemPoolInterface $statCachePool,
         private readonly bool $asVirtualFilesystem
     ) {
         $this->startTime = (int) $environment->getStartTime();
+    }
 
-        // Load the stat cache from the PSR cache if enabled.
-        if ($this->statCachePool !== null) {
-            $this->statCachePoolItemForIncludes = $this->statCachePool->getItem($statCacheKey . '_includes');
+    /**
+     * Deletes both the include and non-include stats
+     * for the specified realpath in the PSR backing cache.
+     */
+    private function deleteBackingCacheEntry(string $realpath): void
+    {
+        $this->statCachePool->deleteItem($this->getBackingCacheItemKey($realpath, isInclude: true));
+        $this->statCachePool->deleteItem($this->getBackingCacheItemKey($realpath, isInclude: false));
+    }
 
-            if ($this->statCachePoolItemForIncludes->isHit()) {
-                $this->statCacheForIncludes = $this->statCachePoolItemForIncludes->get();
-            }
+    /**
+     * Fetches the stat for the given realpath from the PSR backing cache, if any.
+     *
+     * @param string $realpath
+     * @param bool $isInclude
+     * @return array<mixed>|null
+     */
+    private function getBackingCacheEntry(string $realpath, bool $isInclude): ?array
+    {
+        $statCacheItem = $this->getBackingCacheItem($realpath, $isInclude);
 
-            $this->statCachePoolItemForNonIncludes = $this->statCachePool->getItem($statCacheKey . '_plain');
+        return $statCacheItem->isHit() ? $statCacheItem->get() : null;
+    }
 
-            if ($this->statCachePoolItemForNonIncludes->isHit()) {
-                $this->statCacheForNonIncludes = $this->statCachePoolItemForNonIncludes->get();
-            }
-        }
+    /**
+     * Fetches the PSR backing cache item for the given realpath's stat.
+     */
+    private function getBackingCacheItem(string $realpath, bool $isInclude): CacheItemInterface
+    {
+        return $this->statCachePool->getItem(
+            $this->getBackingCacheItemKey($realpath, isInclude: $isInclude)
+        );
+    }
+
+    /**
+     * Fetches the key to use for the PSR backing cache item for the given realpath.
+     */
+    private function getBackingCacheItemKey(string $realpath, bool $isInclude): string
+    {
+        return ($isInclude ? 'include_' : 'plain_') .
+            $this->canonicaliser->canonicaliseCacheKey($realpath);
     }
 
     /**
@@ -97,17 +112,13 @@ class StatCache implements StatCacheInterface
             return null;
         }
 
-        if ($isInclude) {
-            $effectiveStatCache =& $this->statCacheForIncludes;
-        } else {
-            $effectiveStatCache =& $this->statCacheForNonIncludes;
-        }
+        $stat = $this->getBackingCacheEntry($linkPath, isInclude: $isInclude);
 
-        if (array_key_exists($linkPath, $effectiveStatCache)) {
+        if ($stat !== null) {
             // Stat is already cached: just return it.
             $accessible = true;
 
-            return $effectiveStatCache[$linkPath];
+            return $stat;
         }
 
         // Not cached; we have no way of knowing whether it is accessible,
@@ -123,6 +134,7 @@ class StatCache implements StatCacheInterface
     public function getPathStat(string $path, bool $isLinkStat, bool $quiet = true): ?array
     {
         $accessible = true;
+        /** @var string|null $linkPath */
         $linkPath = null;
         $stat = $this->getCachedStat(
             $path,
@@ -157,8 +169,7 @@ class StatCache implements StatCacheInterface
         }
 
         // Cache stat for future reference.
-        $this->statCacheForNonIncludes[$linkPath] = $this->statToSynthetic($stat);
-        $this->statCacheIsDirty = true;
+        $this->setBackingCacheEntry($linkPath, isInclude: false, entry: $this->statToSynthetic($stat));
 
         return $stat;
     }
@@ -168,6 +179,7 @@ class StatCache implements StatCacheInterface
      */
     public function getStreamStat(StreamWrapperInterface $streamWrapper): ?array
     {
+        /** @var string|null $linkPath */
         $linkPath = null;
         $stat = $this->getCachedStat(
             $streamWrapper->getOpenPath(),
@@ -193,15 +205,12 @@ class StatCache implements StatCacheInterface
             return null;
         }
 
-        if ($streamWrapper->isInclude()) {
-            $effectiveStatCache =& $this->statCacheForIncludes;
-        } else {
-            $effectiveStatCache =& $this->statCacheForNonIncludes;
-        }
-
         // Cache stat for future reference.
-        $effectiveStatCache[$linkPath] = $this->statToSynthetic($stat);
-        $this->statCacheIsDirty = true;
+        $this->setBackingCacheEntry(
+            $linkPath,
+            isInclude: $streamWrapper->isInclude(),
+            entry: $this->statToSynthetic($stat)
+        );
 
         return $stat;
     }
@@ -211,10 +220,7 @@ class StatCache implements StatCacheInterface
      */
     public function invalidate(): void
     {
-        $this->statCacheForIncludes = [];
-        $this->statCacheForNonIncludes = [];
-
-        $this->statCacheIsDirty = true;
+        $this->statCachePool->clear();
     }
 
     /**
@@ -224,20 +230,11 @@ class StatCache implements StatCacheInterface
     {
         // Clear the canonical path entries.
         $canonicalPath = $this->canonicaliser->canonicalise($path);
-
-        unset(
-            $this->statCacheForIncludes[$canonicalPath],
-            $this->statCacheForNonIncludes[$canonicalPath]
-        );
+        $this->deleteBackingCacheEntry($canonicalPath);
 
         // Clear the eventual path entries if not cleared above.
         $eventualPath = $this->realpathCache->getCachedEventualPath($path);
-        unset(
-            $this->statCacheForIncludes[$eventualPath],
-            $this->statCacheForNonIncludes[$eventualPath]
-        );
-
-        $this->statCacheIsDirty = true;
+        $this->deleteBackingCacheEntry($eventualPath);
     }
 
     /**
@@ -255,14 +252,7 @@ class StatCache implements StatCacheInterface
      */
     public function persistStatCache(): void
     {
-        if ($this->statCachePoolItemForIncludes === null || $this->statCacheIsDirty === false) {
-            return; // Persistence is disabled or nothing changed; nothing to do.
-        }
-
-        $this->statCachePoolItemForIncludes->set($this->statCacheForIncludes);
-        $this->statCachePoolItemForNonIncludes->set($this->statCacheForNonIncludes);
-        $this->statCachePool->saveDeferred($this->statCachePoolItemForIncludes);
-        $this->statCachePool->saveDeferred($this->statCachePoolItemForNonIncludes);
+        $this->statCachePool->commit();
     }
 
     /**
@@ -273,16 +263,13 @@ class StatCache implements StatCacheInterface
         int $size,
         bool $isInclude
     ): void {
-        if ($isInclude) {
-            $effectiveStatCache =& $this->statCacheForIncludes;
-        } else {
-            $effectiveStatCache =& $this->statCacheForNonIncludes;
-        }
+        $stat = $this->getBackingCacheEntry($realpath, isInclude: $isInclude);
 
-        if (array_key_exists($realpath, $effectiveStatCache)) {
+        if ($stat !== null) {
             // Already cached - just update the size if needed.
-            $effectiveStatCache[$realpath]['size'] = $size;
-            $effectiveStatCache[$realpath][7] = $size;
+            $stat['size'] = $size;
+            $stat[7] = $size;
+            $this->setBackingCacheEntry($realpath, isInclude: $isInclude, entry: $stat);
 
             return;
         }
@@ -311,8 +298,22 @@ class StatCache implements StatCacheInterface
 
         $includeStat = $this->statToSynthetic([...$nonIncludeStat, 'size' => $size]);
 
-        $effectiveStatCache[$realpath] = $includeStat;
-        $this->statCacheIsDirty = true;
+        $this->setBackingCacheEntry($realpath, isInclude: $isInclude, entry: $includeStat);
+    }
+
+    /**
+     * Stores the given entry for the specified realpath in the PSR backing cache.
+     *
+     * @param string $realpath
+     * @param bool $isInclude
+     * @param array<mixed> $entry
+     */
+    private function setBackingCacheEntry(string $realpath, bool $isInclude, array $entry): void
+    {
+        $statCacheItem = $this->getBackingCacheItem($realpath, $isInclude);
+
+        $statCacheItem->set($entry);
+        $this->statCachePool->saveDeferred($statCacheItem);
     }
 
     /**
@@ -320,15 +321,7 @@ class StatCache implements StatCacheInterface
      */
     public function setStat(string $realpath, array $stat, bool $isInclude): void
     {
-        if ($isInclude) {
-            $effectiveStatCache =& $this->statCacheForIncludes;
-        } else {
-            $effectiveStatCache =& $this->statCacheForNonIncludes;
-        }
-
-        $effectiveStatCache[$realpath] = $this->statToSynthetic($stat);
-
-        $this->statCacheIsDirty = true;
+        $this->setBackingCacheEntry($realpath, isInclude: $isInclude, entry: $stat);
     }
 
     /**
@@ -372,13 +365,9 @@ class StatCache implements StatCacheInterface
             );
         }
 
-        if ($isInclude) {
-            $effectiveStatCache =& $this->statCacheForIncludes;
-        } else {
-            $effectiveStatCache =& $this->statCacheForNonIncludes;
-        }
+        $item = $this->getBackingCacheItem($realpath, isInclude: $isInclude);
 
-        if (array_key_exists($realpath, $effectiveStatCache)) {
+        if ($item->isHit()) {
             throw new LogicException('Synthetic stat already exists for path "' . $realpath . '"');
         }
 
@@ -394,8 +383,7 @@ class StatCache implements StatCacheInterface
             'size' => $size,
         ]);
 
-        $effectiveStatCache[$realpath] = $stat;
-        $this->statCacheIsDirty = true;
+        $this->setBackingCacheEntry($realpath, isInclude: $isInclude, entry: $stat);
     }
 
     /**
@@ -417,18 +405,13 @@ class StatCache implements StatCacheInterface
             );
         }
 
-        if ($isInclude) {
-            $effectiveStatCache =& $this->statCacheForIncludes;
-        } else {
-            $effectiveStatCache =& $this->statCacheForNonIncludes;
-        }
+        $stat = $this->getBackingCacheEntry($realpath, isInclude: $isInclude);
 
-        if (!array_key_exists($realpath, $effectiveStatCache)) {
+        if ($stat === null) {
             throw new LogicException('No synthetic stat exists for path "' . $realpath . '"');
         }
 
         // Update the stat components as needed.
-        $stat =& $effectiveStatCache[$realpath];
 
         if ($size !== null) {
             $stat['size'] = $size;
@@ -463,6 +446,6 @@ class StatCache implements StatCacheInterface
             $stat[9] = $modificationTime;
         }
 
-        $this->statCacheIsDirty = true;
+        $this->setBackingCacheEntry($realpath, isInclude: $isInclude, entry: $stat);
     }
 }

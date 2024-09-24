@@ -33,11 +33,14 @@ interface FsCacheFactoryInterface
      */
     public function createStreamHandler(
         StreamHandlerInterface $originalStreamHandler,
-        ?CacheItemPoolInterface $realpathCachePool,
-        ?CacheItemPoolInterface $statCachePool,
+        CacheItemPoolInterface $realpathCachePool,
+        CacheItemPoolInterface $statCachePool,
         ?ContentsCacheInterface $contentsCache,
         string $realpathCacheKey,
         string $statCacheKey,
+        /**
+         * Whether the non-existence of files should be cached in the realpath cache.
+         */
         bool $cacheNonExistentFiles,
         FileFilterInterface $pathFilter,
         bool $asVirtualFilesystem

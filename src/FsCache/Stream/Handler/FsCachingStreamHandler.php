@@ -305,9 +305,6 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         if ($this->asVirtualFilesystem) {
             // TODO: Remove directory from realpath & stat caches (stat entry mode will indicate a dir).
             throw new LogicException('Nytris Boost :: rmdir() in virtual FS mode not yet supported');
-
-            // The rmdir should not hit the backing store.
-            return true;
         }
 
         $this->invalidatePath($path);
@@ -491,10 +488,10 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         }
 
         if ($this->asVirtualFilesystem) {
-            // TODO: Remove file from realpath, stat & contents caches.
-            throw new LogicException('Nytris Boost :: unlink() in virtual FS mode not yet supported');
+            $this->statCache->invalidatePath($eventualPath);
+            $this->contentsCache->invalidatePath($eventualPath);
+            $this->realpathCache->invalidatePath($eventualPath);
 
-            // The unlink should not hit the backing store.
             return true;
         }
 

@@ -15,7 +15,6 @@ namespace Nytris\Boost\FsCache\Realpath;
 
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
-use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
 /**
@@ -23,38 +22,32 @@ use Psr\Cache\CacheItemPoolInterface;
  *
  * Caches realpaths, optionally also to a PSR cache implementation, to improve performance.
  *
- * @phpstan-import-type RealpathCacheStorage from RealpathCacheInterface
  * @phpstan-import-type RealpathCacheEntry from RealpathCacheInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 class RealpathCache implements RealpathCacheInterface
 {
     /**
-     * @var RealpathCacheStorage
+     * Realpaths may be resolved multiple times, e.g. to resolve an eventual path
+     * but then to attempt to resolve to a realpath to determine file existence.
+     * This volume may cause a lot of load on the PSR backing store/in general
+     * even if in-memory, with many CacheItem instances being created on the heap etc.,
+     * so we keep a simple write-through entry cache here.
+     *
+     * @var array<string, RealpathCacheEntry>
      */
-    private array $realpathCache = [];
-    private bool $realpathCacheIsDirty = false;
-    private ?CacheItemInterface $realpathCachePoolItem = null;
+    private array $realpathEntryCache = [];
 
     public function __construct(
         private readonly StreamHandlerInterface $wrappedStreamHandler,
         private readonly CanonicaliserInterface $canonicaliser,
-        private readonly ?CacheItemPoolInterface $realpathCachePool,
-        string $realpathCacheKey,
+        private readonly CacheItemPoolInterface $realpathCachePool,
         /**
          * Whether the non-existence of files should be cached in the realpath cache.
          */
         private readonly bool $cacheNonExistentFiles,
         private readonly bool $asVirtualFilesystem
     ) {
-        // Load the realpath cache from the PSR cache if enabled.
-        if ($this->realpathCachePool !== null) {
-            $this->realpathCachePoolItem = $this->realpathCachePool->getItem($realpathCacheKey);
-
-            if ($this->realpathCachePoolItem->isHit()) {
-                $this->realpathCache = $this->realpathCachePoolItem->get();
-            }
-        }
     }
 
     /**
@@ -62,19 +55,45 @@ class RealpathCache implements RealpathCacheInterface
      */
     public function cacheRealpath(string $canonicalPath, string $realpath): void
     {
-        $this->realpathCache[$realpath] = [
+        $this->setBackingCacheEntry($realpath, [
             'realpath' => $realpath,
-        ];
+        ]);
 
         if ($canonicalPath !== $realpath) {
             // Canonical path is not the same as the realpath, e.g. path is a symlink.
             // Add pointer entry from canonical targeting the final symlink one.
-            $this->realpathCache[$canonicalPath] = [
+            $this->setBackingCacheEntry($canonicalPath, [
                 'symlink' => $realpath,
-            ];
+            ]);
+        }
+    }
+
+    /**
+     * Deletes the entry for the specified realpath in the PSR backing cache.
+     */
+    private function deleteBackingCacheEntry(string $realpath): void
+    {
+        $this->realpathCachePool->deleteItem($this->canonicaliser->canonicaliseCacheKey($realpath));
+        unset($this->realpathEntryCache[$realpath]);
+    }
+
+    /**
+     * Fetches the entry for the given realpath from the PSR backing cache, if any.
+     *
+     * @param string $realpath
+     * @return array<mixed>|null
+     */
+    private function getBackingCacheEntry(string $realpath): ?array
+    {
+        if (array_key_exists($realpath, $this->realpathEntryCache)) {
+            return $this->realpathEntryCache[$realpath];
         }
 
-        $this->realpathCacheIsDirty = true;
+        $realpathCacheItem = $this->realpathCachePool->getItem(
+            $this->canonicaliser->canonicaliseCacheKey($realpath)
+        );
+
+        return $realpathCacheItem->isHit() ? $realpathCacheItem->get() : null;
     }
 
     /**
@@ -85,7 +104,7 @@ class RealpathCache implements RealpathCacheInterface
         bool $followSymlinks = true,
         bool &$accessible = true
     ): string {
-        $entry = $this->realpathCache[$path] ?? null;
+        $entry = $this->getBackingCacheEntry($path);
 
         if ($entry === null) {
             return $path;
@@ -94,7 +113,7 @@ class RealpathCache implements RealpathCacheInterface
         $canonicalPath = $entry['canonical'] ?? null;
 
         if ($canonicalPath !== null) {
-            $entry = $this->realpathCache[$canonicalPath] ?? null;
+            $entry = $this->getBackingCacheEntry($canonicalPath);
 
             if ($entry === null) {
                 return $canonicalPath;
@@ -105,7 +124,7 @@ class RealpathCache implements RealpathCacheInterface
             $symlinkPath = $entry['symlink'] ?? null;
 
             if ($symlinkPath !== null) {
-                $entry = $this->realpathCache[$symlinkPath] ?? null;
+                $entry = $this->getBackingCacheEntry($symlinkPath);
 
                 if ($entry === null) {
                     return $symlinkPath;
@@ -172,11 +191,9 @@ class RealpathCache implements RealpathCacheInterface
 
         if ($path !== $canonicalPath) {
             // Path is not canonical, add pointer entry targeting the canonical one.
-            $this->realpathCache[$path] = [
+            $this->setBackingCacheEntry($path, [
                 'canonical' => $canonicalPath,
-            ];
-
-            $this->realpathCacheIsDirty = true;
+            ]);
         }
 
         if ($this->asVirtualFilesystem || !$followSymlinks) {
@@ -195,17 +212,15 @@ class RealpathCache implements RealpathCacheInterface
                 if ($symlinkTarget !== false) {
                     $canonicalSymlinkTarget = $this->canonicaliser->canonicalise($symlinkTarget);
 
-                    $this->realpathCache[$canonicalPath] = [
+                    $this->setBackingCacheEntry($canonicalPath, [
                         'symlink' => $canonicalSymlinkTarget,
-                    ];
+                    ]);
 
                     if ($this->cacheNonExistentFiles) {
-                        $this->realpathCache[$canonicalSymlinkTarget] = [
+                        $this->setBackingCacheEntry($canonicalSymlinkTarget, [
                             'exists' => false,
-                        ];
+                        ]);
                     }
-
-                    $this->realpathCacheIsDirty = true;
 
                     // File does not exist or is inaccessible.
                     return $getEventual ? $canonicalSymlinkTarget : null;
@@ -214,12 +229,10 @@ class RealpathCache implements RealpathCacheInterface
 
             if ($this->cacheNonExistentFiles) {
                 // Add canonical entry.
-                $this->realpathCache[$canonicalPath] = [
+                $this->setBackingCacheEntry($canonicalPath, [
                     'exists' => false,
-                ];
+                ]);
             }
-
-            $this->realpathCacheIsDirty = true;
 
             // File does not exist or is inaccessible.
             $accessible = false;
@@ -237,7 +250,7 @@ class RealpathCache implements RealpathCacheInterface
      */
     public function getRealpathCacheEntry(string $path, bool $followSymlinks): ?array
     {
-        $entry = $this->realpathCache[$path] ?? null;
+        $entry = $this->getBackingCacheEntry($path);
 
         if ($entry === null) {
             // TODO: Clear pointer entry from cache?
@@ -248,7 +261,7 @@ class RealpathCache implements RealpathCacheInterface
         $canonicalPath = $entry['canonical'] ?? null;
 
         if ($canonicalPath !== null) {
-            $entry = $this->realpathCache[$canonicalPath] ?? null;
+            $entry = $this->getBackingCacheEntry($canonicalPath);
 
             if ($entry === null) {
                 // TODO: Clear pointer entry from cache?
@@ -261,7 +274,7 @@ class RealpathCache implements RealpathCacheInterface
             $symlinkPath = $entry['symlink'] ?? null;
 
             if ($symlinkPath !== null) {
-                $entry = $this->realpathCache[$symlinkPath] ?? null;
+                $entry = $this->getBackingCacheEntry($symlinkPath);
 
                 if ($entry === null) {
                     // TODO: Clear pointer entry from cache?
@@ -279,9 +292,7 @@ class RealpathCache implements RealpathCacheInterface
      */
     public function invalidate(): void
     {
-        $this->realpathCache = [];
-
-        $this->realpathCacheIsDirty = true;
+        $this->realpathCachePool->clear();
     }
 
     /**
@@ -295,12 +306,10 @@ class RealpathCache implements RealpathCacheInterface
         // Clear the canonical path entries (which may be pointed to by some symbolic path entries -
         // this action will effectively invalidate those too).
         $canonicalPath = $this->canonicaliser->canonicalise($path);
-        unset($this->realpathCache[$canonicalPath]);
+        $this->deleteBackingCacheEntry($canonicalPath);
 
         // Clear the eventual path entries if not cleared above.
-        unset($this->realpathCache[$eventualPath]);
-
-        $this->realpathCacheIsDirty = true;
+        $this->deleteBackingCacheEntry($eventualPath);
     }
 
     /**
@@ -308,11 +317,22 @@ class RealpathCache implements RealpathCacheInterface
      */
     public function persistRealpathCache(): void
     {
-        if ($this->realpathCachePoolItem === null || $this->realpathCacheIsDirty === false) {
-            return; // Persistence is disabled or nothing changed; nothing to do.
-        }
+        $this->realpathCachePool->commit();
+    }
 
-        $this->realpathCachePoolItem->set($this->realpathCache);
-        $this->realpathCachePool->saveDeferred($this->realpathCachePoolItem);
+    /**
+     * Stores the given entry for the specified realpath in the PSR backing cache.
+     *
+     * @param string $realpath
+     * @param array<mixed> $entry
+     */
+    private function setBackingCacheEntry(string $realpath, array $entry): void
+    {
+        $realpathCacheItem = $this->realpathCachePool->getItem(
+            $this->canonicaliser->canonicaliseCacheKey($realpath)
+        );
+
+        $realpathCacheItem->set($entry);
+        $this->realpathCachePool->saveDeferred($realpathCacheItem);
     }
 }

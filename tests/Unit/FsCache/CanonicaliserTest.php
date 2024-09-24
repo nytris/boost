@@ -121,4 +121,12 @@ class CanonicaliserTest extends AbstractTestCase
             $this->canonicaliser->canonicalise('./path/to/stuff.txt')
         );
     }
+
+    public function testCanonicaliseCacheKeyReturnsCanonicalisedResult(): void
+    {
+        static::assertSame(
+            hash('sha256', 'my_key'),
+            $this->canonicaliser->canonicaliseCacheKey('my_key')
+        );
+    }
 }

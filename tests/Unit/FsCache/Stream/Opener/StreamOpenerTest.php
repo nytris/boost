@@ -16,9 +16,9 @@ namespace Nytris\Boost\Tests\Unit\FsCache\Stream\Opener;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
 use Mockery\MockInterface;
-use Nytris\Boost\FsCache\CanonicaliserInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
-use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
+use Nytris\Boost\FsCache\Realpath\RealpathCacheInterface;
+use Nytris\Boost\FsCache\Stat\StatCacheInterface;
 use Nytris\Boost\FsCache\Stream\Opener\StreamOpener;
 use Nytris\Boost\Tests\AbstractTestCase;
 
@@ -29,55 +29,59 @@ use Nytris\Boost\Tests\AbstractTestCase;
  */
 class StreamOpenerTest extends AbstractTestCase
 {
-    private MockInterface&CanonicaliserInterface $canonicaliser;
     private MockInterface&ContentsCacheInterface $contentsCache;
-    private MockInterface&FsCachingStreamHandlerInterface $streamHandler;
+    private MockInterface&RealpathCacheInterface $realpathCache;
+    private MockInterface&StatCacheInterface $statCache;
     private StreamOpener $streamOpener;
     private MockInterface&StreamWrapperInterface $streamWrapper;
     private MockInterface&StreamHandlerInterface $wrappedStreamHandler;
 
     public function setUp(): void
     {
-        $this->canonicaliser = mock(CanonicaliserInterface::class);
         $this->contentsCache = mock(ContentsCacheInterface::class);
-        $this->streamHandler = mock(FsCachingStreamHandlerInterface::class);
+        $this->realpathCache = mock(RealpathCacheInterface::class);
+        $this->statCache = mock(StatCacheInterface::class);
         $this->streamWrapper = mock(StreamWrapperInterface::class);
         $this->wrappedStreamHandler = mock(StreamHandlerInterface::class);
 
         $this->streamOpener = new StreamOpener(
             $this->wrappedStreamHandler,
-            $this->canonicaliser,
-            $this->contentsCache
+            $this->realpathCache,
+            $this->statCache,
+            $this->contentsCache,
+            asVirtualFilesystem: false
         );
     }
 
-    public function testOpenStreamInvalidatesCanonicalPathForWriteModes(): void
+    public function testOpenStreamInvalidatesPathForWriteModesInCachingMode(): void
     {
-        $this->canonicaliser->allows()
-            ->canonicalise('/my/uncanonical/path/to/my_file.txt')
-            ->andReturn('/my/canonical/path/to/my_file.txt');
         $openedPath = null;
         $this->wrappedStreamHandler->allows()
             ->streamOpen(
                 $this->streamWrapper,
-                '/my/canonical/path/to/my_file.txt',
+                '/my/path/to/my_file.txt',
                 'r+',
                 0,
                 $openedPath
             )
             ->andReturn(['resource' => 21, 'isInclude' => false]);
 
-        $this->streamHandler->expects()
-            ->invalidatePath('/my/canonical/path/to/my_file.txt')
+        $this->realpathCache->expects()
+            ->invalidatePath('/my/path/to/my_file.txt')
+            ->once();
+        $this->statCache->expects()
+            ->invalidatePath('/my/path/to/my_file.txt')
+            ->once();
+        $this->contentsCache->expects()
+            ->invalidatePath('/my/path/to/my_file.txt')
             ->once();
 
         $this->streamOpener->openStream(
             $this->streamWrapper,
-            '/my/uncanonical/path/to/my_file.txt',
+            '/my/path/to/my_file.txt',
             'r+',
             0,
-            $openedPath,
-            $this->streamHandler
+            $openedPath
         );
     }
 }

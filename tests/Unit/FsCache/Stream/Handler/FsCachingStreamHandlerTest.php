@@ -17,13 +17,14 @@ use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
 use Mockery\MockInterface;
+use Nytris\Boost\Environment\EnvironmentInterface;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
+use Nytris\Boost\FsCache\Realpath\RealpathCacheInterface;
+use Nytris\Boost\FsCache\Stat\StatCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
 use Nytris\Boost\FsCache\Stream\Opener\StreamOpenerInterface;
 use Nytris\Boost\Tests\AbstractTestCase;
-use Psr\Cache\CacheItemInterface;
-use Psr\Cache\CacheItemPoolInterface;
 
 /**
  * Class FsCachingStreamHandlerTest.
@@ -34,12 +35,10 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
 {
     private MockInterface&CanonicaliserInterface $canonicaliser;
     private MockInterface&ContentsCacheInterface $contentsCache;
+    private MockInterface&EnvironmentInterface $environment;
     private FsCachingStreamHandler $fsCachingStreamHandler;
-    private MockInterface&CacheItemPoolInterface $realpathCachePool;
-    private MockInterface&CacheItemInterface $realpathCachePoolItem;
-    private MockInterface&CacheItemPoolInterface $statCachePool;
-    private MockInterface&CacheItemInterface $statCacheItemForIncludes;
-    private MockInterface&CacheItemInterface $statCacheItemForNonIncludes;
+    private MockInterface&RealpathCacheInterface $realpathCache;
+    private MockInterface&StatCacheInterface $statCache;
     private MockInterface&StreamOpenerInterface $streamOpener;
     private MockInterface&StreamWrapperInterface $streamWrapper;
     private MockInterface&StreamHandlerInterface $wrappedStreamHandler;
@@ -48,32 +47,9 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
     {
         $this->canonicaliser = mock(CanonicaliserInterface::class);
         $this->contentsCache = mock(ContentsCacheInterface::class);
-        $this->realpathCachePool = mock(CacheItemPoolInterface::class);
-        $this->realpathCachePoolItem = mock(CacheItemInterface::class, [
-            'get' => [
-                '/my/resolved/../path/to/my_module.php' => [
-                    'canonical' => '/my/path/to/my_module.php',
-                ],
-            ],
-            'isHit' => true,
-        ]);
-        $this->statCachePool = mock(CacheItemPoolInterface::class);
-        $this->statCacheItemForIncludes = mock(CacheItemInterface::class, [
-            'get' => [
-                '/my/path/to/my_module.php' => [
-                    'my_fake_include_stat' => 'yes',
-                ],
-            ],
-            'isHit' => true,
-        ]);
-        $this->statCacheItemForNonIncludes = mock(CacheItemInterface::class, [
-            'get' => [
-                '/my/file.txt' => [
-                    'my_fake_plain_stat' => 'yes',
-                ],
-            ],
-            'isHit' => true,
-        ]);
+        $this->environment = mock(EnvironmentInterface::class);
+        $this->realpathCache = mock(RealpathCacheInterface::class);
+        $this->statCache = mock(StatCacheInterface::class);
         $this->streamOpener = mock(StreamOpenerInterface::class);
         $this->streamWrapper = mock(StreamWrapperInterface::class);
         $this->wrappedStreamHandler = mock(StreamHandlerInterface::class);
@@ -82,147 +58,104 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             ->andReturnArg(0)
             ->byDefault();
 
-        $this->realpathCachePool->allows()
-            ->getItem('my_realpath_cache_key')
-            ->andReturn($this->realpathCachePoolItem)
-            ->byDefault();
-
-        $this->statCachePool->allows()
-            ->getItem('my_stat_cache_key_includes')
-            ->andReturn($this->statCacheItemForIncludes)
-            ->byDefault();
-
-        $this->statCachePool->allows()
-            ->getItem('my_stat_cache_key_plain')
-            ->andReturn($this->statCacheItemForNonIncludes)
-            ->byDefault();
-
         $this->wrappedStreamHandler->allows('unwrapped')
             ->andReturnUsing(fn (callable $callback) => $callback())
             ->byDefault();
 
         $this->fsCachingStreamHandler = new FsCachingStreamHandler(
             $this->wrappedStreamHandler,
+            $this->environment,
             $this->streamOpener,
-            $this->canonicaliser,
-            $this->realpathCachePool,
-            $this->statCachePool,
+            $this->realpathCache,
+            $this->statCache,
             $this->contentsCache,
-            realpathCacheKey: 'my_realpath_cache_key',
-            statCacheKey: 'my_stat_cache_key',
-            cacheNonExistentFiles: true,
-            pathFilter: new FileFilter('/my/**')
+            pathFilter: new FileFilter('/my/**'),
+            asVirtualFilesystem: false
         );
     }
 
-    public function testCacheRealpathCanCacheARealpath(): void
+    public function testCacheRealpathForwardsOntoRealpathCache(): void
     {
+        $this->realpathCache->expects()
+            ->cacheRealpath(
+                '/my/custom/canonical/path',
+                '/my/custom/real/path'
+            )
+            ->once();
+
         $this->fsCachingStreamHandler->cacheRealpath(
             canonicalPath: '/my/custom/canonical/path',
             realpath: '/my/custom/real/path'
         );
+    }
+
+    public function testGetRealpathForwardsOntoRealpathCache(): void
+    {
+        $this->realpathCache->allows()
+            ->getRealpath('/my/custom/canonical/path')
+            ->andReturn('/my/custom/real/path');
 
         static::assertSame(
             '/my/custom/real/path',
             $this->fsCachingStreamHandler->getRealpath('/my/custom/canonical/path')
         );
-        static::assertSame(
-            '/my/custom/real/path',
-            $this->fsCachingStreamHandler->getRealpath('/my/custom/real/path')
-        );
-        static::assertEquals(
-            [
-                'realpath' => '/my/custom/real/path',
-            ],
-            $this->fsCachingStreamHandler->getRealpathCacheEntry('/my/custom/canonical/path')
-        );
     }
 
-    public function testGetRealpathCachesNonExistentFileWhenEnabled(): void
+    public function testInvalidatePathInvalidatesSubCachesWhenMatchedByPathFilter(): void
     {
-        $path = '/my/non/existent/path';
+        $this->realpathCache->allows()
+            ->getCachedEventualPath('/my/canonical/path/to/my_file.txt')
+            ->andReturn('/my/real/path/to/my_file.txt');
 
-        static::assertNull($this->fsCachingStreamHandler->getRealpath($path));
-        static::assertEquals(
-            ['exists' => false],
-            $this->fsCachingStreamHandler->getRealpathCacheEntry($path)
-        );
-    }
-
-    public function testGetRealpathDoesNotCacheNonExistentFileWhenDisabled(): void
-    {
-        $path = '/my/non/existent/path';
-        $this->fsCachingStreamHandler = new FsCachingStreamHandler(
-            $this->wrappedStreamHandler,
-            $this->streamOpener,
-            $this->canonicaliser,
-            $this->realpathCachePool,
-            $this->statCachePool,
-            $this->contentsCache,
-            realpathCacheKey: 'my_realpath_cache_key',
-            statCacheKey: 'my_stat_cache_key',
-            cacheNonExistentFiles: false, // Disable caching of non-existent files.
-            pathFilter: new FileFilter('**')
-        );
-
-        static::assertNull($this->fsCachingStreamHandler->getRealpath($path));
-        static::assertNull($this->fsCachingStreamHandler->getRealpathCacheEntry($path));
-    }
-
-    public function testInvalidatePathInvalidatesContentsCacheWhenMatchedByPathFilter(): void
-    {
+        $this->realpathCache->expects()
+            ->invalidatePath('/my/canonical/path/to/my_file.txt')
+            ->once();
+        $this->statCache->expects()
+            ->invalidatePath('/my/canonical/path/to/my_file.txt')
+            ->once();
         $this->contentsCache->expects()
-            ->invalidatePath('/my/path/to/my_file.txt')
+            ->invalidatePath('/my/canonical/path/to/my_file.txt')
             ->once();
 
-        $this->fsCachingStreamHandler->invalidatePath('/my/path/to/my_file.txt');
+        $this->fsCachingStreamHandler->invalidatePath('/my/canonical/path/to/my_file.txt');
     }
 
-    public function testInvalidatePathDoesNotInvalidateContentsCacheWhenIgnoredByPathFilter(): void
+    public function testInvalidatePathDoesNotInvalidateSubCachesWhenIgnoredByPathFilter(): void
     {
+        $this->realpathCache->allows()
+            ->getCachedEventualPath('/your/canonical/path/to/your_file.txt')
+            ->andReturn('/your/real/path/to/your_file.txt');
+
+        $this->realpathCache->expects('invalidatePath')
+            ->never();
+        $this->statCache->expects('invalidatePath')
+            ->never();
         $this->contentsCache->expects('invalidatePath')
             ->never();
 
-        $this->fsCachingStreamHandler->invalidatePath('/your/path/to/my_file.txt');
+        $this->fsCachingStreamHandler->invalidatePath('/your/canonical/path/to/your_file.txt');
     }
 
-    public function testPersistStatCachePersistsBothStatTypeCachesWhenDirty(): void
+    public function testPersistStatCachePersistsStatCache(): void
     {
-        $this->statCacheItemForIncludes->expects('set')
+        $this->statCache->expects()
+            ->persistStatCache()
             ->once();
-        $this->statCacheItemForNonIncludes->expects('set')
-            ->once();
-        $this->statCachePool->expects()
-            ->saveDeferred($this->statCacheItemForIncludes)
-            ->once();
-        $this->statCachePool->expects()
-            ->saveDeferred($this->statCacheItemForNonIncludes)
-            ->once();
-
-        $this->fsCachingStreamHandler->invalidateCaches();
-        $this->fsCachingStreamHandler->persistStatCache();
-    }
-
-    public function testPersistStatCacheDoesNotPersistStatTypeCachesWhenClean(): void
-    {
-        $this->statCacheItemForIncludes->expects('set')
-            ->never();
-        $this->statCacheItemForNonIncludes->expects('set')
-            ->never();
-        $this->statCachePool->expects('saveDeferred')
-            ->never();
 
         $this->fsCachingStreamHandler->persistStatCache();
     }
 
     public function testStreamOpenForwardsToWrappedHandlerWhenIgnoredByPathFilter(): void
     {
+        $this->realpathCache->allows()
+            ->getEventualPath('/your/canonical/path/to/your_file.php')
+            ->andReturn('/your/real/path/to/your_file.php');
         $openedPath = null;
         $this->wrappedStreamHandler->allows()
             ->streamOpen(
                 $this->streamWrapper,
                 // Use `/your/**` path so that configured path filter is not matched.
-                '/your/path/to/my_file.php',
+                '/your/canonical/path/to/your_file.php',
                 'r',
                 0,
                 $openedPath
@@ -233,7 +166,7 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             ['resource' => 21, 'isInclude' => true],
             $this->fsCachingStreamHandler->streamOpen(
                 $this->streamWrapper,
-                '/your/path/to/my_file.php',
+                '/your/canonical/path/to/your_file.php',
                 'r',
                 0,
                 $openedPath
@@ -243,15 +176,17 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
 
     public function testStreamOpenForwardsToStreamOpenerWhenMatchedByPathFilter(): void
     {
+        $this->realpathCache->allows()
+            ->getEventualPath('/my/canonical/path/to/my_file.php')
+            ->andReturn('/my/real/path/to/my_file.php');
         $openedPath = null;
         $this->streamOpener->allows()
             ->openStream(
                 $this->streamWrapper,
-                '/my/path/to/my_file.php',
+                '/my/real/path/to/my_file.php',
                 'r',
                 0,
-                $openedPath,
-                $this->fsCachingStreamHandler
+                $openedPath
             )
             ->andReturn(['resource' => 21, 'isInclude' => true]);
 
@@ -259,7 +194,7 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
             ['resource' => 21, 'isInclude' => true],
             $this->fsCachingStreamHandler->streamOpen(
                 $this->streamWrapper,
-                '/my/path/to/my_file.php',
+                '/my/canonical/path/to/my_file.php',
                 'r',
                 0,
                 $openedPath
@@ -267,18 +202,17 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
         );
     }
 
-    public function testStreamStatRetrievesACachedIncludeStat(): void
+    public function testStreamStatRetrievesACachedStat(): void
     {
         $this->streamWrapper->allows()
             ->getOpenPath()
-            ->andReturn('/my/path/to/my_module.php');
-        $this->streamWrapper->allows()
-            ->isInclude()
-            ->andReturnTrue();
-        $this->fsCachingStreamHandler->cacheRealpath(
-            canonicalPath: '/my/path/to/my_module.php',
-            realpath: '/my/path/to/my_module.php'
-        );
+            ->andReturn('/my/canonical/path/to/my_module.php');
+        $this->realpathCache->allows()
+            ->getEventualPath('/my/canonical/path/to/my_module.php')
+            ->andReturn('/my/real/path/to/my_module.php');
+        $this->statCache->allows()
+            ->getStreamStat($this->streamWrapper)
+            ->andReturn(['my_fake_include_stat' => 'yes']);
 
         static::assertEquals(
             ['my_fake_include_stat' => 'yes'],
@@ -286,73 +220,18 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
         );
     }
 
-    public function testStreamStatDoesNotRetrieveACachedIncludeStatForPlainStream(): void
-    {
-        $this->streamWrapper->allows()
-            ->getOpenPath()
-            ->andReturn('/my/path/to/my_module.php');
-        $this->streamWrapper->allows()
-            ->isInclude()
-            ->andReturnFalse();
-        $this->fsCachingStreamHandler->cacheRealpath(
-            canonicalPath: '/my/path/to/my_module.php',
-            realpath: '/my/path/to/my_module.php'
-        );
-        $this->wrappedStreamHandler->allows()
-            ->streamStat($this->streamWrapper)
-            ->andReturnFalse();
-
-        static::assertFalse($this->fsCachingStreamHandler->streamStat($this->streamWrapper));
-    }
-
-    public function testStreamStatRetrievesACachedPlainStat(): void
-    {
-        $this->streamWrapper->allows()
-            ->getOpenPath()
-            ->andReturn('/my/file.txt');
-        $this->streamWrapper->allows()
-            ->isInclude()
-            ->andReturnFalse();
-        $this->fsCachingStreamHandler->cacheRealpath(
-            canonicalPath: '/my/file.txt',
-            realpath: '/my/file.txt'
-        );
-
-        static::assertEquals(
-            ['my_fake_plain_stat' => 'yes'],
-            $this->fsCachingStreamHandler->streamStat($this->streamWrapper)
-        );
-    }
-
-    public function testStreamStatDoesNotRetrieveACachedPlainStatForIncludeStream(): void
-    {
-        $this->streamWrapper->allows()
-            ->getOpenPath()
-            ->andReturn('/my/file.txt');
-        $this->streamWrapper->allows()
-            ->isInclude()
-            ->andReturnTrue();
-        $this->fsCachingStreamHandler->cacheRealpath(
-            canonicalPath: '/my/file.txt',
-            realpath: '/my/file.txt'
-        );
-        $this->wrappedStreamHandler->allows()
-            ->streamStat($this->streamWrapper)
-            ->andReturnFalse();
-
-        static::assertFalse($this->fsCachingStreamHandler->streamStat($this->streamWrapper));
-    }
-
     public function testUrlStatRetrievesACachedPlainStat(): void
     {
-        $this->fsCachingStreamHandler->cacheRealpath(
-            canonicalPath: '/my/file.txt',
-            realpath: '/my/file.txt'
-        );
+        $this->realpathCache->allows()
+            ->getEventualPath('/my/canonical/file.txt')
+            ->andReturn('/my/real/file.txt');
+        $this->statCache->allows()
+            ->getPathStat('/my/canonical/file.txt', false, false)
+            ->andReturn(['my_fake_plain_stat' => 'yes']);
 
         static::assertEquals(
             ['my_fake_plain_stat' => 'yes'],
-            $this->fsCachingStreamHandler->urlStat('/my/file.txt', 0)
+            $this->fsCachingStreamHandler->urlStat('/my/canonical/file.txt', 0)
         );
     }
 }

@@ -36,8 +36,8 @@ class FsCache implements FsCacheInterface
 
     public function __construct(
         private readonly FsCacheFactoryInterface $fsCacheFactory,
-        private readonly ?CacheItemPoolInterface $realpathCachePool,
-        private readonly ?CacheItemPoolInterface $statCachePool,
+        private readonly CacheItemPoolInterface $realpathCachePool,
+        private readonly CacheItemPoolInterface $statCachePool,
         private readonly ?ContentsCacheInterface $contentsCache,
         private readonly string $realpathCacheKey,
         private readonly string $statCacheKey,
@@ -48,13 +48,6 @@ class FsCache implements FsCacheInterface
         private readonly FileFilterInterface $pathFilter,
         private readonly bool $asVirtualFilesystem
     ) {
-        /**
-         * To reduce I/O, defer PSR cache persistence (if enabled)
-         * until the end of the request or CLI process.
-         */
-        register_shutdown_function(function () {
-            $this->persistCaches();
-        });
     }
 
     /**

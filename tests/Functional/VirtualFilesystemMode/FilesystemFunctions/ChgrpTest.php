@@ -57,8 +57,6 @@ class ChgrpTest extends AbstractFunctionalTestCase
             library: new Library($this->environment),
             realpathCachePool: $this->realpathCachePool,
             statCachePool: $this->statCachePool,
-            realpathCacheKey: '__my_realpath_cache',
-            statCacheKey: '__my_stat_cache',
             hookBuiltinFunctions: false,
             contentsCache: $this->contentsCache,
             // Avoid affecting test harness filesystem access, e.g. when autoloading Mockery classes.

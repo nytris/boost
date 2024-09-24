@@ -15,7 +15,6 @@ namespace Nytris\Boost;
 
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
-use Nytris\Boost\FsCache\Canonicaliser;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\FsCache;
 use Nytris\Boost\FsCache\FsCacheFactory;
@@ -23,6 +22,7 @@ use Nytris\Boost\FsCache\FsCacheInterface;
 use Nytris\Boost\Library\Library;
 use Nytris\Boost\Library\LibraryInterface;
 use Psr\Cache\CacheItemPoolInterface;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 /**
  * Class Boost.
@@ -35,14 +35,13 @@ class Boost implements BoostInterface
 {
     private readonly FsCacheInterface $fsCache;
     private readonly ?FileFilterInterface $hookBuiltinFunctionsFilter;
-    private readonly LibraryInterface $library;
 
     public function __construct(
         /**
          * When standalone, a library will be created here if not provided.
          * When installed as a Nytris package, Charge provides a single shared Library instance.
          */
-        ?LibraryInterface $library = null,
+        private readonly LibraryInterface $library = new Library(),
         ?FsCacheInterface $fsCache = null,
         /**
          * Cache pool in which to persist the realpath cache.
@@ -58,7 +57,13 @@ class Boost implements BoostInterface
          * Cache will still be maintained for the life of the request/CLI process.
          */
         ?CacheItemPoolInterface $statCachePool = null,
+        /**
+         * @deprecated Unused - use the cache pool namespace.
+         */
         string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
+        /**
+         * @deprecated Unused - use the cache pool namespace.
+         */
         string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
         /**
          * Whether to hook built-in functions such as clearstatcache(...).
@@ -84,9 +89,6 @@ class Boost implements BoostInterface
          */
         bool $asVirtualFilesystem = false
     ) {
-        $library ??= new Library();
-        $this->library = $library;
-
         $this->hookBuiltinFunctionsFilter = match ($hookBuiltinFunctions) {
             true => new FileFilter('**'),
             false => null,
@@ -95,8 +97,12 @@ class Boost implements BoostInterface
 
         $environment = $library->getEnvironment();
 
+        // Just cache in memory if persistence is disabled.
+        $realpathCachePool ??= new ArrayAdapter();
+        $statCachePool ??= new ArrayAdapter();
+
         $this->fsCache = $fsCache ?? new FsCache(
-            new FsCacheFactory($environment, new Canonicaliser($environment)),
+            new FsCacheFactory($environment, $library->getCanonicaliser()),
             $realpathCachePool,
             $statCachePool,
             $contentsCache,
@@ -106,6 +112,14 @@ class Boost implements BoostInterface
             $pathFilter,
             $asVirtualFilesystem
         );
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getLibrary(): LibraryInterface
+    {
+        return $this->library;
     }
 
     /**

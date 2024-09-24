@@ -16,6 +16,7 @@ namespace Nytris\Boost\Library;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Nytris\Boost\BoostInterface;
 use Nytris\Boost\Environment\EnvironmentInterface;
+use Nytris\Boost\FsCache\CanonicaliserInterface;
 
 /**
  * Interface LibraryInterface.
@@ -30,6 +31,11 @@ interface LibraryInterface
      * Adds an instance of Boost to the library installation.
      */
     public function addBoost(BoostInterface $boost): void;
+
+    /**
+     * Fetches the Canonicaliser.
+     */
+    public function getCanonicaliser(): CanonicaliserInterface;
 
     /**
      * Fetches the Environment.
