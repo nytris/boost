@@ -4,11 +4,11 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f4ad597bf45ed77f629671899d02f343",
+    "content-hash": "52fddbfab9a119822a6f60255006d3c8",
     "packages": [
         {
             "name": "asmblah/php-code-shift",
-            "version": "dev-main",
+            "version": "v0.1.17",
             "source": {
                 "type": "git",
                 "url": "https://github.com/asmblah/php-code-shift.git",
@@ -33,7 +33,6 @@
                 "phpstan/phpstan-mockery": "^1.1",
                 "phpunit/phpunit": "^10.2"
             },
-            "default-branch": true,
             "type": "project",
             "autoload": {
                 "files": [
@@ -2901,18 +2900,9 @@
             "time": "2024-03-03T12:36:25+00:00"
         }
     ],
-    "aliases": [
-        {
-            "package": "asmblah/php-code-shift",
-            "version": "dev-main",
-            "alias": "v0.1.16",
-            "alias_normalized": "0.1.16.0"
-        }
-    ],
+    "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {
-        "asmblah/php-code-shift": 20
-    },
+    "stability-flags": [],
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {
