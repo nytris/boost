@@ -150,10 +150,25 @@ class TouchTest extends AbstractFunctionalTestCase
         static::assertSame(1726739486, $stat[8]);
     }
 
-    public function testReturnsFalseForNonExistentFile(): void
+    public function testCreatesNonExistentFileWhenNeitherModificationNorAccessTimestampsSpecified(): void
     {
+        $path = '/my/virtual/non_existent_file.txt';
+        $this->environment->allows()
+            ->getStartTime()
+            ->andReturn(1726739986);
+        $this->environment->allows()
+            ->getTime()
+            ->andReturn(1726749987);
         $this->boost->install();
 
-        static::assertFalse(@touch('/my/virtual/non_existent_file.txt'));
+        static::assertTrue(touch($path));
+        static::assertTrue(is_file($path));
+        $stat = stat($path);
+        static::assertSame(1726749987, $stat['mtime'], 'Should use current system time');
+        static::assertSame(1726749987, $stat[9]);
+        static::assertSame(1726749987, $stat['atime'], 'Should use current system time');
+        static::assertSame(1726749987, $stat[8]);
+        static::assertSame(0, $stat['size'], 'Should use 0 as the size');
+        static::assertSame(0, $stat[7]);
     }
 }

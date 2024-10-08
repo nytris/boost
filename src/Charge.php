@@ -34,6 +34,22 @@ class Charge implements ChargeInterface
     /**
      * @inheritDoc
      */
+    public static function getInMemoryRealpathEntryCache(): array
+    {
+        return self::getLibrary()->getInMemoryRealpathEntryCache();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public static function getInMemoryStatEntryCache(): array
+    {
+        return self::getLibrary()->getInMemoryStatEntryCache();
+    }
+
+    /**
+     * @inheritDoc
+     */
     public static function getLibrary(): LibraryInterface
     {
         if (!self::$library) {
@@ -90,7 +106,9 @@ class Charge implements ChargeInterface
             cacheNonExistentFiles: $package->shouldCacheNonExistentFiles(),
             contentsCache: $package->getContentsCache($packageContext->getPackageCachePath()),
             pathFilter: $package->getPathFilter(),
-            asVirtualFilesystem: $package->isVirtualFilesystem()
+            asVirtualFilesystem: $package->isVirtualFilesystem(),
+            realpathPreloadCachePool: $package->getRealpathPreloadCachePool($packageContext->getPackageCachePath()),
+            statPreloadCachePool: $package->getStatPreloadCachePool($packageContext->getPackageCachePath())
         );
 
         $boost->install();

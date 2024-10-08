@@ -44,7 +44,9 @@ class FsCacheFactory implements FsCacheFactoryInterface
      */
     public function createStreamHandler(
         StreamHandlerInterface $originalStreamHandler,
+        ?CacheItemPoolInterface $realpathPreloadCachePool,
         CacheItemPoolInterface $realpathCachePool,
+        ?CacheItemPoolInterface $statPreloadCachePool,
         CacheItemPoolInterface $statCachePool,
         ?ContentsCacheInterface $contentsCache,
         string $realpathCacheKey,
@@ -58,6 +60,7 @@ class FsCacheFactory implements FsCacheFactoryInterface
         $realpathCache = new RealpathCache(
             $originalStreamHandler,
             $this->canonicaliser,
+            $realpathPreloadCachePool,
             $realpathCachePool,
             $cacheNonExistentFiles,
             $asVirtualFilesystem
@@ -67,6 +70,7 @@ class FsCacheFactory implements FsCacheFactoryInterface
             $this->environment,
             $this->canonicaliser,
             $realpathCache,
+            $statPreloadCachePool,
             $statCachePool,
             $asVirtualFilesystem
         );

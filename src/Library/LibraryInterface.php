@@ -17,12 +17,16 @@ use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Nytris\Boost\BoostInterface;
 use Nytris\Boost\Environment\EnvironmentInterface;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
+use Nytris\Boost\FsCache\Realpath\RealpathCacheInterface;
+use Nytris\Boost\FsCache\Stat\StatCacheInterface;
 
 /**
  * Interface LibraryInterface.
  *
  * Encapsulates an installation of the library.
  *
+ * @phpstan-import-type MultipleStatCacheStorage from StatCacheInterface
+ * @phpstan-import-type RealpathCacheStorage from RealpathCacheInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 interface LibraryInterface
@@ -41,6 +45,20 @@ interface LibraryInterface
      * Fetches the Environment.
      */
     public function getEnvironment(): EnvironmentInterface;
+
+    /**
+     * Fetches the in-memory realpath entry cache across all registered Boost instances.
+     *
+     * @return RealpathCacheStorage
+     */
+    public function getInMemoryRealpathEntryCache(): array;
+
+    /**
+     * Fetches the in-memory stat entry cache across all registered Boost instances.
+     *
+     * @return MultipleStatCacheStorage
+     */
+    public function getInMemoryStatEntryCache(): array;
 
     /**
      * Hooks built-in functions to make them compatible with Nytris Boost.

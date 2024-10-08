@@ -22,6 +22,7 @@ use Nytris\Boost\Environment\Environment;
 use Nytris\Boost\Environment\EnvironmentInterface;
 use Nytris\Boost\FsCache\Canonicaliser;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
+use Nytris\Boost\FsCache\Stat\StatCacheInterface;
 use SplObjectStorage;
 
 /**
@@ -29,6 +30,7 @@ use SplObjectStorage;
  *
  * Encapsulates an installation of the library.
  *
+ * @phpstan-import-type StatCacheStorage from StatCacheInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 class Library implements LibraryInterface
@@ -75,6 +77,42 @@ class Library implements LibraryInterface
     public function getEnvironment(): EnvironmentInterface
     {
         return $this->environment;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryRealpathEntryCache(): array
+    {
+        return array_reduce(
+            iterator_to_array($this->boosts),
+            static fn (array $carry, BoostInterface $boost) =>
+                array_merge($carry, $boost->getInMemoryRealpathEntryCache()),
+            []
+        );
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryStatEntryCache(): array
+    {
+        /** @var StatCacheStorage $mergedIncludeStats */
+        $mergedIncludeStats = [];
+        /** @var StatCacheStorage $mergedNonIncludeStats */
+        $mergedNonIncludeStats = [];
+
+        foreach ($this->boosts as $boost) {
+            $multipleCache = $boost->getInMemoryStatEntryCache();
+
+            $mergedIncludeStats = array_merge($mergedIncludeStats, $multipleCache['include']);
+            $mergedNonIncludeStats = array_merge($mergedNonIncludeStats, $multipleCache['non_include']);
+        }
+
+        return [
+            'include' => $mergedIncludeStats,
+            'non_include' => $mergedNonIncludeStats,
+        ];
     }
 
     /**

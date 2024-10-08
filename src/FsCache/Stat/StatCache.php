@@ -29,21 +29,48 @@ use Psr\Cache\CacheItemPoolInterface;
  * to improve performance.
  *
  * @phpstan-import-type StatCacheEntry from StatCacheInterface
+ * @phpstan-import-type StatCacheStorage from StatCacheInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 class StatCache implements StatCacheInterface
 {
     private int $startTime;
+    /**
+     * Stats may cause a lot of load on the PSR backing store/in general
+     * even if in-memory, with many CacheItem instances being created on the heap etc.,
+     * so we keep a simple write-through entry cache here.
+     *
+     * @var StatCacheStorage
+     */
+    private array $includeStatEntryCache;
+    /**
+     * See above.
+     *
+     * @var StatCacheStorage
+     */
+    private array $nonIncludeStatEntryCache;
 
     public function __construct(
         private readonly StreamHandlerInterface $wrappedStreamHandler,
         EnvironmentInterface $environment,
         private readonly CanonicaliserInterface $canonicaliser,
         private readonly RealpathCacheInterface $realpathCache,
+        ?CacheItemPoolInterface $statPreloadCachePool,
         private readonly CacheItemPoolInterface $statCachePool,
         private readonly bool $asVirtualFilesystem
     ) {
         $this->startTime = (int) $environment->getStartTime();
+
+        if ($statPreloadCachePool) {
+            $includeItem = $statPreloadCachePool->getItem(self::INCLUDE_PRELOAD_CACHE_KEY);
+            $nonIncludeItem = $statPreloadCachePool->getItem(self::NON_INCLUDE_PRELOAD_CACHE_KEY);
+
+            $this->includeStatEntryCache = $includeItem->isHit() ? $includeItem->get() : [];
+            $this->nonIncludeStatEntryCache = $nonIncludeItem->isHit() ? $nonIncludeItem->get() : [];
+        } else {
+            $this->includeStatEntryCache = [];
+            $this->nonIncludeStatEntryCache = [];
+        }
     }
 
     /**
@@ -53,7 +80,9 @@ class StatCache implements StatCacheInterface
     private function deleteBackingCacheEntry(string $realpath): void
     {
         $this->statCachePool->deleteItem($this->getBackingCacheItemKey($realpath, isInclude: true));
+        unset($this->includeStatEntryCache[$realpath]);
         $this->statCachePool->deleteItem($this->getBackingCacheItemKey($realpath, isInclude: false));
+        unset($this->nonIncludeStatEntryCache[$realpath]);
     }
 
     /**
@@ -65,6 +94,18 @@ class StatCache implements StatCacheInterface
      */
     private function getBackingCacheEntry(string $realpath, bool $isInclude): ?array
     {
+        if ($isInclude) {
+            $effectiveEntryCache =& $this->includeStatEntryCache;
+        } else {
+            $effectiveEntryCache =& $this->nonIncludeStatEntryCache;
+        }
+
+        $entry = $effectiveEntryCache[$realpath] ?? null;
+
+        if ($entry !== null) {
+            return $entry;
+        }
+
         $statCacheItem = $this->getBackingCacheItem($realpath, $isInclude);
 
         return $statCacheItem->isHit() ? $statCacheItem->get() : null;
@@ -126,6 +167,17 @@ class StatCache implements StatCacheInterface
         $accessible = true;
 
         return null;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryEntryCache(): array
+    {
+        return [
+            'include' => $this->includeStatEntryCache,
+            'non_include' => $this->nonIncludeStatEntryCache,
+        ];
     }
 
     /**
@@ -221,6 +273,9 @@ class StatCache implements StatCacheInterface
     public function invalidate(): void
     {
         $this->statCachePool->clear();
+
+        $this->includeStatEntryCache = [];
+        $this->nonIncludeStatEntryCache = [];
     }
 
     /**
@@ -245,6 +300,14 @@ class StatCache implements StatCacheInterface
         $stat = $this->getCachedStat($path, isLinkStat: false, isInclude: false);
 
         return $stat !== null && ($stat['mode'] & 0040000);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function isPathCachedAsExistent(string $path): bool
+    {
+        return $this->getCachedStat($path, isLinkStat: false, isInclude: false) !== null;
     }
 
     /**
@@ -314,6 +377,28 @@ class StatCache implements StatCacheInterface
 
         $statCacheItem->set($entry);
         $this->statCachePool->saveDeferred($statCacheItem);
+
+        if ($isInclude) {
+            $effectiveEntryCache =& $this->includeStatEntryCache;
+        } else {
+            $effectiveEntryCache =& $this->nonIncludeStatEntryCache;
+        }
+
+        $effectiveEntryCache[$realpath] = $entry;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function setInMemoryCacheEntry(string $realpath, bool $isInclude, array $entry): void
+    {
+        if ($isInclude) {
+            $effectiveEntryCache =& $this->includeStatEntryCache;
+        } else {
+            $effectiveEntryCache =& $this->nonIncludeStatEntryCache;
+        }
+
+        $effectiveEntryCache[$realpath] = $entry;
     }
 
     /**

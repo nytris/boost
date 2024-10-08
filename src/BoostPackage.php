@@ -82,7 +82,23 @@ class BoostPackage implements BoostPackageInterface
          * In virtual-filesystem mode, the cache is write-allocate with no write-through
          * to the next stream handler in the chain (usually the original one, which persists to disk).
          */
-        private readonly bool $asVirtualFilesystem = false
+        private readonly bool $asVirtualFilesystem = false,
+        /**
+         * Read-only cache pool from which to preload the realpath cache.
+         *
+         * Set to null to disable preloading from a PSR cache.
+         *
+         * @var Closure(string): CacheItemPoolInterface
+         */
+        private readonly ?Closure $realpathPreloadCachePoolFactory = null,
+        /**
+         * Read-only cache pool from which to preload the stat cache.
+         *
+         * Set to null to disable preloading from a PSR cache.
+         *
+         * @var Closure(string): CacheItemPoolInterface
+         */
+        private readonly ?Closure $statPreloadCachePoolFactory = null
     ) {
         $this->hookBuiltinFunctionsFilter = match ($hookBuiltinFunctions) {
             true => new FileFilter('**'),
@@ -146,6 +162,16 @@ class BoostPackage implements BoostPackageInterface
     /**
      * @inheritDoc
      */
+    public function getRealpathPreloadCachePool(string $boostCachePath): ?CacheItemPoolInterface
+    {
+        return $this->realpathPreloadCachePoolFactory !== null ?
+            ($this->realpathPreloadCachePoolFactory)($boostCachePath) :
+            null;
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function getStatCacheKey(): string
     {
         return $this->statCacheKey;
@@ -158,6 +184,16 @@ class BoostPackage implements BoostPackageInterface
     {
         return $this->statCachePoolFactory !== null ?
             ($this->statCachePoolFactory)($boostCachePath) :
+            null;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getStatPreloadCachePool(string $boostCachePath): ?CacheItemPoolInterface
+    {
+        return $this->statPreloadCachePoolFactory !== null ?
+            ($this->statPreloadCachePoolFactory)($boostCachePath) :
             null;
     }
 

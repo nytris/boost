@@ -36,7 +36,9 @@ class FsCache implements FsCacheInterface
 
     public function __construct(
         private readonly FsCacheFactoryInterface $fsCacheFactory,
+        private readonly ?CacheItemPoolInterface $realpathPreloadCachePool,
         private readonly CacheItemPoolInterface $realpathCachePool,
+        private readonly ?CacheItemPoolInterface $statPreloadCachePool,
         private readonly CacheItemPoolInterface $statCachePool,
         private readonly ?ContentsCacheInterface $contentsCache,
         private readonly string $realpathCacheKey,
@@ -53,13 +55,31 @@ class FsCache implements FsCacheInterface
     /**
      * @inheritDoc
      */
+    public function getInMemoryRealpathEntryCache(): array
+    {
+        return $this->fsCachingStreamHandler->getInMemoryRealpathEntryCache();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryStatEntryCache(): array
+    {
+        return $this->fsCachingStreamHandler->getInMemoryStatEntryCache();
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function install(): void
     {
         $this->originalStreamHandler = StreamWrapperManager::getStreamHandler();
 
         $this->fsCachingStreamHandler = $this->fsCacheFactory->createStreamHandler(
             $this->originalStreamHandler,
+            $this->realpathPreloadCachePool,
             $this->realpathCachePool,
+            $this->statPreloadCachePool,
             $this->statCachePool,
             $this->contentsCache,
             $this->realpathCacheKey,

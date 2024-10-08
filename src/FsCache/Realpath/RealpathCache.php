@@ -23,6 +23,7 @@ use Psr\Cache\CacheItemPoolInterface;
  * Caches realpaths, optionally also to a PSR cache implementation, to improve performance.
  *
  * @phpstan-import-type RealpathCacheEntry from RealpathCacheInterface
+ * @phpstan-import-type RealpathCacheStorage from RealpathCacheInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 class RealpathCache implements RealpathCacheInterface
@@ -34,13 +35,14 @@ class RealpathCache implements RealpathCacheInterface
      * even if in-memory, with many CacheItem instances being created on the heap etc.,
      * so we keep a simple write-through entry cache here.
      *
-     * @var array<string, RealpathCacheEntry>
+     * @var RealpathCacheStorage
      */
-    private array $realpathEntryCache = [];
+    private array $realpathEntryCache;
 
     public function __construct(
         private readonly StreamHandlerInterface $wrappedStreamHandler,
         private readonly CanonicaliserInterface $canonicaliser,
+        ?CacheItemPoolInterface $realpathPreloadCachePool,
         private readonly CacheItemPoolInterface $realpathCachePool,
         /**
          * Whether the non-existence of files should be cached in the realpath cache.
@@ -48,6 +50,13 @@ class RealpathCache implements RealpathCacheInterface
         private readonly bool $cacheNonExistentFiles,
         private readonly bool $asVirtualFilesystem
     ) {
+        if ($realpathPreloadCachePool) {
+            $item = $realpathPreloadCachePool->getItem(self::PRELOAD_CACHE_KEY);
+
+            $this->realpathEntryCache = $item->isHit() ? $item->get() : [];
+        } else {
+            $this->realpathEntryCache = [];
+        }
     }
 
     /**
@@ -69,24 +78,23 @@ class RealpathCache implements RealpathCacheInterface
     }
 
     /**
-     * Deletes the entry for the specified realpath in the PSR backing cache.
+     * @inheritDoc
      */
-    private function deleteBackingCacheEntry(string $realpath): void
+    public function deleteBackingCacheEntry(string $realpath): void
     {
         $this->realpathCachePool->deleteItem($this->canonicaliser->canonicaliseCacheKey($realpath));
         unset($this->realpathEntryCache[$realpath]);
     }
 
     /**
-     * Fetches the entry for the given realpath from the PSR backing cache, if any.
-     *
-     * @param string $realpath
-     * @return array<mixed>|null
+     * @inheritDoc
      */
     public function getBackingCacheEntry(string $realpath): ?array
     {
-        if (array_key_exists($realpath, $this->realpathEntryCache)) {
-            return $this->realpathEntryCache[$realpath];
+        $entry = $this->realpathEntryCache[$realpath] ?? null;
+
+        if ($entry !== null) {
+            return $entry;
         }
 
         $realpathCacheItem = $this->realpathCachePool->getItem(
@@ -134,9 +142,7 @@ class RealpathCache implements RealpathCacheInterface
             $symlinkPath = null;
         }
 
-        if (($entry['exists'] ?? true) === false) {
-            $accessible = false;
-        }
+        $accessible = $entry['exists'] ?? true;
 
         return $entry['realpath'] ?? $canonicalPath ?? $symlinkPath ?? $path;
     }
@@ -155,6 +161,14 @@ class RealpathCache implements RealpathCacheInterface
             followSymlinks: $followSymlinks,
             accessible: $accessible
         );
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryEntryCache(): array
+    {
+        return $this->realpathEntryCache;
     }
 
     /**
@@ -184,6 +198,8 @@ class RealpathCache implements RealpathCacheInterface
         }
 
         if ($realpath !== null) {
+            $accessible = true;
+
             return $realpath;
         }
 
@@ -223,6 +239,8 @@ class RealpathCache implements RealpathCacheInterface
                     }
 
                     // File does not exist or is inaccessible.
+                    $accessible = false;
+
                     return $getEventual ? $canonicalSymlinkTarget : null;
                 }
             }
@@ -241,6 +259,8 @@ class RealpathCache implements RealpathCacheInterface
         }
 
         $this->cacheRealpath($canonicalPath, $realpath);
+
+        $accessible = true;
 
         return $realpath;
     }
@@ -293,6 +313,8 @@ class RealpathCache implements RealpathCacheInterface
     public function invalidate(): void
     {
         $this->realpathCachePool->clear();
+
+        $this->realpathEntryCache = [];
     }
 
     /**
@@ -321,10 +343,7 @@ class RealpathCache implements RealpathCacheInterface
     }
 
     /**
-     * Stores the given entry for the specified realpath in the PSR backing cache.
-     *
-     * @param string $realpath
-     * @param array<mixed> $entry
+     * @inheritDoc
      */
     public function setBackingCacheEntry(string $realpath, array $entry): void
     {
@@ -335,6 +354,14 @@ class RealpathCache implements RealpathCacheInterface
         $realpathCacheItem->set($entry);
         $this->realpathCachePool->saveDeferred($realpathCacheItem);
 
+        $this->realpathEntryCache[$realpath] = $entry;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function setInMemoryCacheEntry(string $realpath, array $entry): void
+    {
         $this->realpathEntryCache[$realpath] = $entry;
     }
 }

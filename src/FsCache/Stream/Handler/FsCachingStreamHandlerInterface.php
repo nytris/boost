@@ -14,6 +14,8 @@ declare(strict_types=1);
 namespace Nytris\Boost\FsCache\Stream\Handler;
 
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
+use Nytris\Boost\FsCache\Realpath\RealpathCacheInterface;
+use Nytris\Boost\FsCache\Stat\StatCacheInterface;
 
 /**
  * Interface FsCachingStreamHandlerInterface.
@@ -21,10 +23,8 @@ use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
  * Caches realpath and filesystem stats, optionally also to a PSR cache implementation,
  * to improve performance.
  *
- * @phpstan-type RealpathCache array<string, RealpathCacheEntry>
- * @phpstan-type RealpathCacheEntry array{canonical?: string, exists?: bool, realpath?: string, symlink?: string}
- * @phpstan-type StatCache array<string, StatCacheEntry>
- * @phpstan-type StatCacheEntry array<mixed>
+ * @phpstan-import-type MultipleStatCacheStorage from StatCacheInterface
+ * @phpstan-import-type RealpathCacheStorage from RealpathCacheInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 interface FsCachingStreamHandlerInterface extends StreamHandlerInterface
@@ -38,6 +38,20 @@ interface FsCachingStreamHandlerInterface extends StreamHandlerInterface
      * Fetches the realpath for the given path, even if it does not exist.
      */
     public function getEventualPath(string $path): string;
+
+    /**
+     * Fetches the in-memory realpath entry cache.
+     *
+     * @return RealpathCacheStorage
+     */
+    public function getInMemoryRealpathEntryCache(): array;
+
+    /**
+     * Fetches the in-memory stat entry cache.
+     *
+     * @return MultipleStatCacheStorage
+     */
+    public function getInMemoryStatEntryCache(): array;
 
     /**
      * Fetches the realpath for the given path if cached,

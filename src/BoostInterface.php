@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 namespace Nytris\Boost;
 
+use Nytris\Boost\FsCache\Realpath\RealpathCacheInterface;
+use Nytris\Boost\FsCache\Stat\StatCacheInterface;
 use Nytris\Boost\Library\LibraryInterface;
 
 /**
@@ -20,10 +22,26 @@ use Nytris\Boost\Library\LibraryInterface;
  *
  * Defines the public facade API for the library.
  *
+ * @phpstan-import-type MultipleStatCacheStorage from StatCacheInterface
+ * @phpstan-import-type RealpathCacheStorage from RealpathCacheInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 interface BoostInterface
 {
+    /**
+     * Fetches the in-memory realpath entry cache.
+     *
+     * @return RealpathCacheStorage
+     */
+    public function getInMemoryRealpathEntryCache(): array;
+
+    /**
+     * Fetches the in-memory stat entry cache.
+     *
+     * @return MultipleStatCacheStorage
+     */
+    public function getInMemoryStatEntryCache(): array;
+
     /**
      * Fetches the library installation for this Boost instance.
      */

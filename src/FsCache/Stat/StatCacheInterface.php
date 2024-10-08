@@ -21,12 +21,16 @@ use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
  * Caches filesystem stats, optionally also to a PSR cache implementation,
  * to improve performance.
  *
+ * @phpstan-type MultipleStatCacheStorage array{include: StatCacheStorage, non_include: StatCacheStorage}
  * @phpstan-type StatCacheStorage array<string, StatCacheEntry>
  * @phpstan-type StatCacheEntry array<mixed>
  * @author Dan Phillimore <dan@ovms.co>
  */
 interface StatCacheInterface
 {
+    public const INCLUDE_PRELOAD_CACHE_KEY = 'nytris.boost.preload.stat.include';
+    public const NON_INCLUDE_PRELOAD_CACHE_KEY = 'nytris.boost.preload.stat.plain';
+
     /**
      * Fetches the (link)stat for the given path, only if already cached.
      *
@@ -44,6 +48,13 @@ interface StatCacheInterface
         bool &$accessible = true,
         string &$linkPath = null
     ): ?array;
+
+    /**
+     * Fetches the in-memory stat entry cache.
+     *
+     * @return MultipleStatCacheStorage
+     */
+    public function getInMemoryEntryCache(): array;
 
     /**
      * Fetches the (link)stat for the given path.
@@ -81,6 +92,11 @@ interface StatCacheInterface
     public function isDirectory(string $path): bool;
 
     /**
+     * Determines whether the given path has been cached as existent.
+     */
+    public function isPathCachedAsExistent(string $path): bool;
+
+    /**
      * Persists the current stat cache via configured PSR cache.
      */
     public function persistStatCache(): void;
@@ -94,6 +110,15 @@ interface StatCacheInterface
      *   after script start if `opcache.file_update_protection` is enabled.
      */
     public function populateStatWithSize(string $realpath, int $size, bool $isInclude): void;
+
+    /**
+     * Stores the given stat for the specified realpath in the in-memory cache only.
+     *
+     * @param string $realpath
+     * @param bool $isInclude
+     * @param array<mixed> $entry
+     */
+    public function setInMemoryCacheEntry(string $realpath, bool $isInclude, array $entry): void;
 
     /**
      * Stores the given stat for the specified path.

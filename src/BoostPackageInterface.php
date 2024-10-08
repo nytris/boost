@@ -45,6 +45,8 @@ interface BoostPackageInterface extends PackageInterface
 
     /**
      * Fetches the key to use for the realpath cache within the cache pool.
+     *
+     * @deprecated Unused - use the cache pool namespace.
      */
     public function getRealpathCacheKey(): string;
 
@@ -57,7 +59,16 @@ interface BoostPackageInterface extends PackageInterface
     public function getRealpathCachePool(string $boostCachePath): ?CacheItemPoolInterface;
 
     /**
+     * Fetches the read-only PSR cache pool to use for preloading the realpath cache.
+     *
+     * Set to null to disable preloading from a PSR cache.
+     */
+    public function getRealpathPreloadCachePool(string $boostCachePath): ?CacheItemPoolInterface;
+
+    /**
      * Fetches the key to use for the stat cache within the cache pool.
+     *
+     * @deprecated Unused - use the cache pool namespace.
      */
     public function getStatCacheKey(): string;
 
@@ -68,6 +79,13 @@ interface BoostPackageInterface extends PackageInterface
      * Cache will still be maintained for the life of the request/CLI process.
      */
     public function getStatCachePool(string $boostCachePath): ?CacheItemPoolInterface;
+
+    /**
+     * Fetches the read-only PSR cache pool to use for preloading the stat cache.
+     *
+     * Set to null to disable preloading from a PSR cache.
+     */
+    public function getStatPreloadCachePool(string $boostCachePath): ?CacheItemPoolInterface;
 
     /**
      * In virtual-filesystem mode, the cache is write-allocate with no write-through

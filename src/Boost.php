@@ -87,7 +87,19 @@ class Boost implements BoostInterface
          * In virtual-filesystem mode, the cache is write-allocate with no write-through
          * to the next stream handler in the chain (usually the original one, which persists to disk).
          */
-        bool $asVirtualFilesystem = false
+        bool $asVirtualFilesystem = false,
+        /**
+         * Read-only cache pool from which to preload the realpath cache.
+         *
+         * Set to null to disable preloading from a PSR cache.
+         */
+        ?CacheItemPoolInterface $realpathPreloadCachePool = null,
+        /**
+         * Read-only cache pool from which to preload the stat cache.
+         *
+         * Set to null to disable preloading from a PSR cache.
+         */
+        ?CacheItemPoolInterface $statPreloadCachePool = null
     ) {
         $this->hookBuiltinFunctionsFilter = match ($hookBuiltinFunctions) {
             true => new FileFilter('**'),
@@ -103,7 +115,9 @@ class Boost implements BoostInterface
 
         $this->fsCache = $fsCache ?? new FsCache(
             new FsCacheFactory($environment, $library->getCanonicaliser()),
+            $realpathPreloadCachePool,
             $realpathCachePool,
+            $statPreloadCachePool,
             $statCachePool,
             $contentsCache,
             $realpathCacheKey,
@@ -112,6 +126,22 @@ class Boost implements BoostInterface
             $pathFilter,
             $asVirtualFilesystem
         );
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryRealpathEntryCache(): array
+    {
+        return $this->fsCache->getInMemoryRealpathEntryCache();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryStatEntryCache(): array
+    {
+        return $this->fsCache->getInMemoryStatEntryCache();
     }
 
     /**

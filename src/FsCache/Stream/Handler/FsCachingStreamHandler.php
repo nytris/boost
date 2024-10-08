@@ -66,6 +66,22 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
     /**
      * @inheritDoc
      */
+    public function getInMemoryRealpathEntryCache(): array
+    {
+        return $this->realpathCache->getInMemoryEntryCache();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryStatEntryCache(): array
+    {
+        return $this->statCache->getInMemoryEntryCache();
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function getRealpath(string $path): ?string
     {
         return $this->realpathCache->getRealpath($path);
@@ -359,6 +375,16 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
                     $modificationTime = $value[0] ?? (int) $this->environment->getTime();
                     $accessTime = $value[1] ?? $modificationTime;
 
+                    if (!$this->statCache->isPathCachedAsExistent($eventualPath)) {
+                        $this->statCache->synthesiseStat(
+                            $eventualPath,
+                            isInclude: false,
+                            isDir: false,
+                            mode: 0666, // TODO: Apply umask?
+                            size: 0
+                        );
+                    }
+
                     $this->statCache->updateSyntheticStat(
                         $eventualPath,
                         isInclude: false,
@@ -472,7 +498,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             return $this->wrappedStreamHandler->streamStat($streamWrapper);
         }
 
-        return $this->statCache->getStreamStat($streamWrapper);
+        return $this->statCache->getStreamStat($streamWrapper) ?? false;
     }
 
     /**

@@ -145,6 +145,77 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
         $this->fsCachingStreamHandler->persistStatCache();
     }
 
+    public function testStreamMetadataForwardsToWrappedHandlerWhenIgnoredByPathFilter(): void
+    {
+        $this->realpathCache->allows()
+            ->getEventualPath('/your/canonical/path/to/your_file.php')
+            ->andReturn('/your/real/path/to/your_file.php');
+        $this->wrappedStreamHandler->allows()
+            ->streamMetadata(
+                // Use `/your/**` path so that configured path filter is not matched.
+                '/your/canonical/path/to/your_file.php',
+                STREAM_META_TOUCH,
+                [null, null]
+            )
+            ->andReturnTrue();
+
+        static::assertTrue(
+            $this->fsCachingStreamHandler->streamMetadata(
+                '/your/canonical/path/to/your_file.php',
+                STREAM_META_TOUCH,
+                [null, null]
+            )
+        );
+    }
+
+    public function testStreamMetadataSynthesisesStatWhenVirtualFilesystemAndMatchedByPathFilterButNonExistent(): void
+    {
+        $this->fsCachingStreamHandler = new FsCachingStreamHandler(
+            $this->wrappedStreamHandler,
+            $this->environment,
+            $this->streamOpener,
+            $this->realpathCache,
+            $this->statCache,
+            $this->contentsCache,
+            pathFilter: new FileFilter('/my/**'),
+            asVirtualFilesystem: true
+        );
+        $this->realpathCache->allows()
+            ->getEventualPath('/my/canonical/path/to/my_file.php')
+            ->andReturn('/my/real/path/to/my_file.php');
+        $this->statCache->allows()
+            ->isPathCachedAsExistent('/my/real/path/to/my_file.php')
+            ->andReturnFalse();
+
+        $this->statCache->expects()
+            ->synthesiseStat(
+                '/my/real/path/to/my_file.php',
+                false,
+                false,
+                0666, // TODO: Apply umask?
+                0
+            )
+            ->once();
+        $this->statCache->expects()
+            ->updateSyntheticStat(
+                '/my/real/path/to/my_file.php',
+                false,
+                null,
+                null,
+                123,
+                456
+            )
+            ->once();
+
+        static::assertTrue(
+            $this->fsCachingStreamHandler->streamMetadata(
+                '/my/canonical/path/to/my_file.php',
+                STREAM_META_TOUCH,
+                [123, 456]
+            )
+        );
+    }
+
     public function testStreamOpenForwardsToWrappedHandlerWhenIgnoredByPathFilter(): void
     {
         $this->realpathCache->allows()
@@ -216,6 +287,23 @@ class FsCachingStreamHandlerTest extends AbstractTestCase
 
         static::assertEquals(
             ['my_fake_include_stat' => 'yes'],
+            $this->fsCachingStreamHandler->streamStat($this->streamWrapper)
+        );
+    }
+
+    public function testStreamStatReturnsFalseWhenStatCacheReturnsNull(): void
+    {
+        $this->streamWrapper->allows()
+            ->getOpenPath()
+            ->andReturn('/my/canonical/path/to/my_module.php');
+        $this->realpathCache->allows()
+            ->getEventualPath('/my/canonical/path/to/my_module.php')
+            ->andReturn('/my/real/path/to/my_module.php');
+        $this->statCache->allows()
+            ->getStreamStat($this->streamWrapper)
+            ->andReturnNull();
+
+        static::assertFalse(
             $this->fsCachingStreamHandler->streamStat($this->streamWrapper)
         );
     }
