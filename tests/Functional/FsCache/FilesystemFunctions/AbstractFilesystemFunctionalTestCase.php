@@ -13,11 +13,10 @@ declare(strict_types=1);
 
 namespace Nytris\Boost\Tests\Functional\FsCache\FilesystemFunctions;
 
-use Mockery\MockInterface;
 use Nytris\Boost\Boost;
 use Nytris\Boost\Tests\Functional\AbstractFunctionalTestCase;
-use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
+use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 /**
  * Class AbstractFilesystemFunctionalTestCase.
@@ -29,61 +28,24 @@ use Psr\Cache\CacheItemPoolInterface;
 abstract class AbstractFilesystemFunctionalTestCase extends AbstractFunctionalTestCase
 {
     protected Boost $boost;
-    protected MockInterface&CacheItemInterface $realpathCacheItem;
-    protected MockInterface&CacheItemPoolInterface $realpathCachePool;
-    private MockInterface&CacheItemInterface $statCacheItemForIncludes;
-    private MockInterface&CacheItemInterface $statCacheItemForNonIncludes;
-    protected MockInterface&CacheItemPoolInterface $statCachePool;
+    protected CacheItemPoolInterface $realpathCachePool;
+    protected CacheItemPoolInterface $statCachePool;
     protected string $varPath;
 
     public function setUp(): void
     {
         parent::setUp();
 
-        $this->realpathCachePool = mock(CacheItemPoolInterface::class, [
-            'saveDeferred' => null,
-        ]);
-        $this->statCachePool = mock(CacheItemPoolInterface::class, [
-            'saveDeferred' => null,
-        ]);
-        $this->realpathCacheItem = mock(CacheItemInterface::class, [
-            'get' => [],
-            'isHit' => true,
-            'set' => null,
-        ]);
-        $this->statCacheItemForIncludes = mock(CacheItemInterface::class, [
-            'get' => [],
-            'isHit' => true,
-            'set' => null,
-        ]);
-        $this->statCacheItemForNonIncludes = mock(CacheItemInterface::class, [
-            'get' => [],
-            'isHit' => true,
-            'set' => null,
-        ]);
+        $this->realpathCachePool = new ArrayAdapter();
+        $this->statCachePool = new ArrayAdapter();
 
         $this->varPath = dirname(__DIR__, 4) . '/var/test';
         @mkdir($this->varPath, recursive: true);
 
         $this->boost = new Boost(
             realpathCachePool: $this->realpathCachePool,
-            statCachePool: $this->statCachePool,
-            realpathCacheKey: '__my_realpath_cache',
-            statCacheKey: '__my_stat_cache'
+            statCachePool: $this->statCachePool
         );
-
-        $this->realpathCachePool->allows()
-            ->getItem('__my_realpath_cache')
-            ->andReturn($this->realpathCacheItem)
-            ->byDefault();
-        $this->statCachePool->allows()
-            ->getItem('__my_stat_cache_includes')
-            ->andReturn($this->statCacheItemForIncludes)
-            ->byDefault();
-        $this->statCachePool->allows()
-            ->getItem('__my_stat_cache_plain')
-            ->andReturn($this->statCacheItemForNonIncludes)
-            ->byDefault();
     }
 
     public function tearDown(): void

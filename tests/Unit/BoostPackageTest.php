@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 namespace Nytris\Boost\Tests\Unit;
 
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Nytris\Boost\BoostPackage;
 use Nytris\Boost\Charge;
 use Nytris\Boost\Tests\AbstractTestCase;
@@ -25,6 +27,31 @@ use Psr\Cache\CacheItemPoolInterface;
  */
 class BoostPackageTest extends AbstractTestCase
 {
+    public function testGetHookBuiltinFunctionsFilterReturnsWildcardFilterWhenSetToTrue(): void
+    {
+        $package = new BoostPackage(hookBuiltinFunctions: true);
+
+        $filter = $package->getHookBuiltinFunctionsFilter();
+
+        static::assertInstanceOf(FileFilter::class, $filter);
+        static::assertSame('**', $filter->getPattern());
+    }
+
+    public function testGetHookBuiltinFunctionsFilterReturnsGivenFilterWhenSetToAFilterInstance(): void
+    {
+        $filter = mock(FileFilterInterface::class);
+        $package = new BoostPackage(hookBuiltinFunctions: $filter);
+
+        static::assertSame($filter, $package->getHookBuiltinFunctionsFilter());
+    }
+
+    public function testGetHookBuiltinFunctionsFilterReturnsNullWhenSetToFalse(): void
+    {
+        $package = new BoostPackage(hookBuiltinFunctions: false);
+
+        static::assertNull($package->getHookBuiltinFunctionsFilter());
+    }
+
     public function testGetPackageFacadeFqcnReturnsCorrectFqcn(): void
     {
         $package = new BoostPackage();
@@ -98,6 +125,20 @@ class BoostPackageTest extends AbstractTestCase
         static::assertNull($package->getStatCachePool('/my/cache/path'));
     }
 
+    public function testIsVirtualFilesystemReturnsTrueWhenSet(): void
+    {
+        $package = new BoostPackage(asVirtualFilesystem: true);
+
+        static::assertTrue($package->isVirtualFilesystem());
+    }
+
+    public function testIsVirtualFilesystemReturnsFalseWhenSet(): void
+    {
+        $package = new BoostPackage(asVirtualFilesystem: false);
+
+        static::assertFalse($package->isVirtualFilesystem());
+    }
+
     public function testShouldCacheNonExistentFilesReturnsTrueWhenSet(): void
     {
         $package = new BoostPackage(cacheNonExistentFiles: true);
@@ -110,19 +151,5 @@ class BoostPackageTest extends AbstractTestCase
         $package = new BoostPackage(cacheNonExistentFiles: false);
 
         static::assertFalse($package->shouldCacheNonExistentFiles());
-    }
-
-    public function testShouldHookBuiltinFunctionsReturnsTrueWhenSet(): void
-    {
-        $package = new BoostPackage(hookBuiltinFunctions: true);
-
-        static::assertTrue($package->shouldHookBuiltinFunctions());
-    }
-
-    public function testShouldHookBuiltinFunctionsReturnsFalseWhenSet(): void
-    {
-        $package = new BoostPackage(hookBuiltinFunctions: false);
-
-        static::assertFalse($package->shouldHookBuiltinFunctions());
     }
 }

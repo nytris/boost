@@ -13,13 +13,16 @@ declare(strict_types=1);
 
 namespace Nytris\Boost\FsCache\Stream\Handler;
 
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\AbstractStreamHandlerDecorator;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
-use Nytris\Boost\FsCache\CanonicaliserInterface;
-use Nytris\Boost\FsCache\FsCacheInterface;
-use Psr\Cache\CacheItemInterface;
-use Psr\Cache\CacheItemPoolInterface;
+use LogicException;
+use Nytris\Boost\Environment\EnvironmentInterface;
+use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
+use Nytris\Boost\FsCache\Realpath\RealpathCacheInterface;
+use Nytris\Boost\FsCache\Stat\StatCacheInterface;
+use Nytris\Boost\FsCache\Stream\Opener\StreamOpenerInterface;
 
 /**
  * Class FsCachingStreamHandler.
@@ -27,68 +30,21 @@ use Psr\Cache\CacheItemPoolInterface;
  * Caches realpath and filesystem stats, optionally also to a PSR cache implementation,
  * to improve performance.
  *
- * @phpstan-import-type RealpathCache from FsCachingStreamHandlerInterface
- * @phpstan-import-type RealpathCacheEntry from FsCachingStreamHandlerInterface
- * @phpstan-import-type StatCache from FsCachingStreamHandlerInterface
- * @phpstan-import-type StatCacheEntry from FsCachingStreamHandlerInterface
  * @author Dan Phillimore <dan@ovms.co>
  */
 class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements FsCachingStreamHandlerInterface
 {
-    /**
-     * @var RealpathCache
-     */
-    private array $realpathCache = [];
-    private bool $realpathCacheIsDirty = false;
-    private ?CacheItemInterface $realpathCachePoolItem = null;
-    /**
-     * @var StatCache
-     */
-    private array $statCacheForIncludes = [];
-    /**
-     * @var StatCache
-     */
-    private array $statCacheForNonIncludes = [];
-    private bool $statCacheIsDirty = false;
-    private ?CacheItemInterface $statCachePoolItemForIncludes = null;
-    private ?CacheItemInterface $statCachePoolItemForNonIncludes = null;
-
     public function __construct(
         StreamHandlerInterface $wrappedStreamHandler,
-        private readonly CanonicaliserInterface $canonicaliser,
-        private readonly ?CacheItemPoolInterface $realpathCachePool,
-        private readonly ?CacheItemPoolInterface $statCachePool,
-        string $realpathCacheKey = FsCacheInterface::DEFAULT_REALPATH_CACHE_KEY,
-        string $statCacheKey = FsCacheInterface::DEFAULT_STAT_CACHE_KEY,
-        /**
-         * Whether the non-existence of files should be cached in the realpath cache.
-         */
-        private readonly bool $cacheNonExistentFiles = true
+        private readonly EnvironmentInterface $environment,
+        private readonly StreamOpenerInterface $streamOpener,
+        private readonly RealpathCacheInterface $realpathCache,
+        private readonly StatCacheInterface $statCache,
+        private readonly ?ContentsCacheInterface $contentsCache,
+        private readonly FileFilterInterface $pathFilter,
+        private readonly bool $asVirtualFilesystem
     ) {
         parent::__construct($wrappedStreamHandler);
-
-        // Load the realpath and stat caches from the PSR caches if enabled.
-        if ($this->realpathCachePool !== null) {
-            $this->realpathCachePoolItem = $this->realpathCachePool->getItem($realpathCacheKey);
-
-            if ($this->realpathCachePoolItem->isHit()) {
-                $this->realpathCache = $this->realpathCachePoolItem->get();
-            }
-        }
-
-        if ($this->statCachePool !== null) {
-            $this->statCachePoolItemForIncludes = $this->statCachePool->getItem($statCacheKey . '_includes');
-
-            if ($this->statCachePoolItemForIncludes->isHit()) {
-                $this->statCacheForIncludes = $this->statCachePoolItemForIncludes->get();
-            }
-
-            $this->statCachePoolItemForNonIncludes = $this->statCachePool->getItem($statCacheKey . '_plain');
-
-            if ($this->statCachePoolItemForNonIncludes->isHit()) {
-                $this->statCacheForNonIncludes = $this->statCachePoolItemForNonIncludes->get();
-            }
-        }
     }
 
     /**
@@ -96,19 +52,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function cacheRealpath(string $canonicalPath, string $realpath): void
     {
-        $this->realpathCache[$realpath] = [
-            'realpath' => $realpath,
-        ];
-
-        if ($canonicalPath !== $realpath) {
-            // Canonical path is not the same as the realpath, e.g. path is a symlink.
-            // Add pointer entry from canonical targeting the final symlink one.
-            $this->realpathCache[$canonicalPath] = [
-                'symlink' => $realpath,
-            ];
-        }
-
-        $this->realpathCacheIsDirty = true;
+        $this->realpathCache->cacheRealpath($canonicalPath, $realpath);
     }
 
     /**
@@ -116,32 +60,23 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function getEventualPath(string $path): string
     {
-        $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
+        return $this->realpathCache->getEventualPath($path);
+    }
 
-        $entry = $this->realpathCache[$canonicalPath] ?? null;
-        $realpath = $entry['realpath'] ?? null;
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryRealpathEntryCache(): array
+    {
+        return $this->realpathCache->getInMemoryEntryCache();
+    }
 
-        if ($realpath !== null) {
-            return $realpath;
-        }
-
-        // Follow symlink if it is one, as realpath will return false if eventual path is inaccessible.
-        if ($this->unwrapped(fn () => is_link($canonicalPath))) {
-            $resolvedPath = readlink($canonicalPath);
-
-            if ($resolvedPath !== false) {
-                // Link target may not be canonical, so we must canonicalise again.
-                $resolvedPath = $this->canonicaliser->canonicalise($resolvedPath, getcwd());
-            } else {
-                $resolvedPath = $canonicalPath;
-            }
-        } else {
-            $resolvedPath = $canonicalPath;
-        }
-
-        $realpath = realpath($resolvedPath);
-
-        return $realpath !== false ? $realpath : $resolvedPath;
+    /**
+     * @inheritDoc
+     */
+    public function getInMemoryStatEntryCache(): array
+    {
+        return $this->statCache->getInMemoryEntryCache();
     }
 
     /**
@@ -149,114 +84,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function getRealpath(string $path): ?string
     {
-        $entry = $this->getRealpathCacheEntry($path);
-
-        if ($entry !== null) {
-            $exists = $entry['exists'] ?? true;
-
-            if (!$exists) {
-                return null; // File has been cached as non-existent.
-            }
-
-            $realpath = $entry['realpath'];
-        } else {
-            $realpath = null;
-        }
-
-        if ($realpath === null) {
-            $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
-
-            if ($path !== $canonicalPath) {
-                // Path is not canonical, add pointer entry targeting the canonical one.
-                $this->realpathCache[$path] = [
-                    'canonical' => $canonicalPath,
-                ];
-
-                $this->realpathCacheIsDirty = true;
-            }
-
-            $realpath = realpath($path);
-
-            if ($realpath === false) {
-                if ($this->unwrapped(fn () => is_link($path))) {
-                    // File is a symlink to an inaccessible target file.
-                    $symlinkTarget = readlink($path);
-
-                    if ($symlinkTarget !== false) {
-                        $canonicalSymlinkTarget = $this->canonicaliser->canonicalise($symlinkTarget, getcwd());
-
-                        $this->realpathCache[$canonicalPath] = [
-                            'symlink' => $canonicalSymlinkTarget,
-                        ];
-
-                        if ($this->cacheNonExistentFiles) {
-                            $this->realpathCache[$canonicalSymlinkTarget] = [
-                                'exists' => false,
-                            ];
-                        }
-
-                        $this->realpathCacheIsDirty = true;
-
-                        return null; // File does not exist or is inaccessible.
-                    }
-                }
-
-                if ($this->cacheNonExistentFiles) {
-                    // Add canonical entry.
-                    $this->realpathCache[$canonicalPath] = [
-                        'exists' => false,
-                    ];
-                }
-
-                $this->realpathCacheIsDirty = true;
-
-                return null; // File does not exist or is inaccessible.
-            }
-
-            $this->cacheRealpath($canonicalPath, $realpath);
-        }
-
-        return $realpath;
-    }
-
-    /**
-     * @inheritDoc
-     */
-    public function getRealpathCacheEntry(string $path): ?array
-    {
-        $entry = $this->realpathCache[$path] ?? null;
-
-        if ($entry === null) {
-            // TODO: Clear pointer entry from cache?
-
-            return null; // Not in cache; early-out.
-        }
-
-        $canonicalPath = $entry['canonical'] ?? null;
-
-        if ($canonicalPath !== null) {
-            $entry = $this->realpathCache[$canonicalPath] ?? null;
-
-            if ($entry === null) {
-                // TODO: Clear pointer entry from cache?
-
-                return null; // Not in cache; early-out.
-            }
-        }
-
-        $symlinkPath = $entry['symlink'] ?? null;
-
-        if ($symlinkPath !== null) {
-            $entry = $this->realpathCache[$symlinkPath] ?? null;
-
-            if ($entry === null) {
-                // TODO: Clear pointer entry from cache?
-
-                return null; // Not in cache; early-out.
-            }
-        }
-
-        return $entry;
+        return $this->realpathCache->getRealpath($path);
     }
 
     /**
@@ -264,12 +92,13 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function invalidateCaches(): void
     {
-        $this->realpathCache = [];
-        $this->statCacheForIncludes = [];
-        $this->statCacheForNonIncludes = [];
+        if ($this->asVirtualFilesystem) {
+            // In virtual filesystem mode, the caches are the filesystem storage so should not be invalidated.
+            return;
+        }
 
-        $this->realpathCacheIsDirty = true;
-        $this->statCacheIsDirty = true;
+        $this->realpathCache->invalidate();
+        $this->statCache->invalidate();
     }
 
     /**
@@ -277,27 +106,23 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function invalidatePath(string $path): void
     {
-        // Clear the canonical path entries (which may be pointed to by some symbolic path entries -
-        // this action will effectively invalidate those too).
-        $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
+        if ($this->asVirtualFilesystem) {
+            // In virtual filesystem mode, the caches are the filesystem storage so should not be invalidated.
+            return;
+        }
 
-        unset(
-            $this->realpathCache[$canonicalPath],
-            $this->statCacheForIncludes[$canonicalPath],
-            $this->statCacheForNonIncludes[$canonicalPath]
-        );
+        $eventualPath = $this->realpathCache->getCachedEventualPath($path);
 
-        // Clear the eventual path entries if not cleared above.
-        $eventualPath = $this->getEventualPath($path);
+        if (!$this->pathFilter->fileMatches($eventualPath)) {
+            // Path is excluded from cache, so ignore.
+            return;
+        }
 
-        unset(
-            $this->realpathCache[$eventualPath],
-            $this->statCacheForIncludes[$eventualPath],
-            $this->statCacheForNonIncludes[$eventualPath]
-        );
-
-        $this->realpathCacheIsDirty = true;
-        $this->statCacheIsDirty = true;
+        // Clear stat cache first, as it may need the realpath cache
+        // in order to resolve paths to clear in the stat cache.
+        $this->statCache->invalidatePath($path);
+        $this->realpathCache->invalidatePath($path);
+        $this->contentsCache?->invalidatePath($path);
     }
 
     /**
@@ -305,9 +130,98 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function mkdir(StreamWrapperInterface $streamWrapper, string $path, int $mode, int $options): bool
     {
-        $this->invalidatePath($path);
+        $eventualPath = $this->realpathCache->getEventualPath($path);
 
-        return $this->wrappedStreamHandler->mkdir($streamWrapper, $path, $mode, $options);
+        if (!$this->pathFilter->fileMatches($eventualPath)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->mkdir($streamWrapper, $path, $mode, $options);
+        }
+
+        if (!$this->asVirtualFilesystem) {
+            // Filesystem cache mode: just invalidate this path and forward to the next handler.
+            $this->invalidatePath($path);
+
+            return $this->wrappedStreamHandler->mkdir($streamWrapper, $path, $mode, $options);
+        }
+
+        $isRecursive = $options & STREAM_MKDIR_RECURSIVE;
+
+        if ($isRecursive) {
+            $createDirectory = function (string $path) use (&$createDirectory, $mode): bool {
+                if ($path === DIRECTORY_SEPARATOR) {
+                    return true; // Root directory always exists.
+                }
+
+                if ($this->statCache->isDirectory($path)) {
+                    return true;
+                }
+
+                if (!$createDirectory(dirname($path))) {
+                    return false;
+                }
+
+                try {
+                    $this->statCache->synthesiseStat(
+                        $path,
+                        isInclude: false,
+                        isDir: true,
+                        mode: $mode,
+                        size: 0
+                    );
+                } catch (LogicException) {
+                    return false;
+                }
+
+                return true;
+            };
+
+            return $createDirectory($eventualPath);
+        }
+
+        if (!$this->statCache->isDirectory(dirname($eventualPath))) {
+            // In non-recursive mode, parent directory needs to exist.
+            return false;
+        }
+
+        try {
+            $this->statCache->synthesiseStat(
+                $eventualPath,
+                isInclude: false,
+                isDir: true,
+                mode: $mode,
+                size: 0
+            );
+        } catch (LogicException) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function openDir(StreamWrapperInterface $streamWrapper, string $path, int $options)
+    {
+        $eventualPath = $this->realpathCache->getEventualPath($path);
+
+        if (!$this->pathFilter->fileMatches($eventualPath)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->openDir($streamWrapper, $path, $options);
+        }
+
+        if (!$this->asVirtualFilesystem) {
+            // Filesystem cache mode: just forward to the next handler for now.
+            // TODO: Use cache for directory structure too.
+            return $this->wrappedStreamHandler->openDir($streamWrapper, $path, $options);
+        }
+
+        throw new LogicException(
+            sprintf(
+                'Virtual filesystem does not yet support opening directory "%s" for enumeration',
+                $eventualPath
+            )
+        );
     }
 
     /**
@@ -315,12 +229,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function persistRealpathCache(): void
     {
-        if ($this->realpathCachePoolItem === null || $this->realpathCacheIsDirty === false) {
-            return; // Persistence is disabled or nothing changed; nothing to do.
-        }
-
-        $this->realpathCachePoolItem->set($this->realpathCache);
-        $this->realpathCachePool->saveDeferred($this->realpathCachePoolItem);
+        $this->realpathCache->persistRealpathCache();
     }
 
     /**
@@ -328,14 +237,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function persistStatCache(): void
     {
-        if ($this->statCachePoolItemForIncludes === null || $this->statCacheIsDirty === false) {
-            return; // Persistence is disabled or nothing changed; nothing to do.
-        }
-
-        $this->statCachePoolItemForIncludes->set($this->statCacheForIncludes);
-        $this->statCachePoolItemForNonIncludes->set($this->statCacheForNonIncludes);
-        $this->statCachePool->saveDeferred($this->statCachePoolItemForIncludes);
-        $this->statCachePool->saveDeferred($this->statCachePoolItemForNonIncludes);
+        $this->statCache->persistStatCache();
     }
 
     /**
@@ -343,6 +245,61 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function rename(StreamWrapperInterface $streamWrapper, string $fromPath, string $toPath): bool
     {
+        $eventualFromPath = $this->realpathCache->getEventualPath($fromPath);
+        $eventualToPath = $this->realpathCache->getEventualPath($toPath);
+
+        $fromPathMatchesFilter = $this->pathFilter->fileMatches($eventualFromPath);
+        $toPathMatchesFilter = $this->pathFilter->fileMatches($eventualToPath);
+
+        if (!$fromPathMatchesFilter && !$toPathMatchesFilter) {
+            // Both paths are excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->rename($streamWrapper, $fromPath, $toPath);
+        }
+
+        if ($this->asVirtualFilesystem) {
+            $this->realpathCache->invalidatePath($fromPath);
+            $this->realpathCache->invalidatePath($toPath);
+
+            $nonIncludeStat = $this->statCache->getCachedStat(
+                $fromPath,
+                isLinkStat: true,
+                isInclude: false
+            );
+            $includeStat = $this->statCache->getCachedStat(
+                $fromPath,
+                isLinkStat: true,
+                isInclude: true
+            );
+            $this->statCache->invalidatePath($fromPath);
+
+            if ($nonIncludeStat !== null) {
+                $this->statCache->setStat($toPath, $nonIncludeStat, isInclude: false);
+            }
+
+            if ($includeStat !== null) {
+                $this->statCache->setStat($toPath, $includeStat, isInclude: true);
+            }
+
+            $nonIncludeFromItem = $this->contentsCache->getItemForPath($fromPath, isInclude: false);
+            $includeFromItem = $this->contentsCache->getItemForPath($fromPath, isInclude: true);
+
+            if ($nonIncludeFromItem->isCached()) {
+                $nonIncludeToItem = $this->contentsCache->getItemForPath($toPath, isInclude: false);
+
+                $nonIncludeToItem->setContents($nonIncludeFromItem->getContents());
+            }
+
+            if ($includeFromItem->isCached()) {
+                $includeToItem = $this->contentsCache->getItemForPath($toPath, isInclude: true);
+
+                $includeToItem->setContents($includeFromItem->getContents());
+            }
+
+            $this->contentsCache->invalidatePath($fromPath);
+
+            return true;
+        }
+
         $this->invalidatePath($fromPath);
         $this->invalidatePath($toPath);
 
@@ -354,6 +311,18 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function rmdir(StreamWrapperInterface $streamWrapper, string $path, int $options): bool
     {
+        $eventualPath = $this->realpathCache->getEventualPath($path);
+
+        if (!$this->pathFilter->fileMatches($eventualPath)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->rmdir($streamWrapper, $path, $options);
+        }
+
+        if ($this->asVirtualFilesystem) {
+            // TODO: Remove directory from realpath & stat caches (stat entry mode will indicate a dir).
+            throw new LogicException('Nytris Boost :: rmdir() in virtual FS mode not yet supported');
+        }
+
         $this->invalidatePath($path);
 
         return $this->wrappedStreamHandler->rmdir($streamWrapper, $path, $options);
@@ -362,11 +331,127 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
     /**
      * @inheritDoc
      */
+    public function streamFlush(StreamWrapperInterface $streamWrapper): bool
+    {
+        return $this->streamOpener->flushStream($streamWrapper);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function streamLock(StreamWrapperInterface $streamWrapper, int $operation): bool
+    {
+        if ($this->asVirtualFilesystem) {
+            // Locking is not (yet) supported.
+            return true;
+        }
+
+        return $this->wrappedStreamHandler->streamLock($streamWrapper, $operation);
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function streamMetadata(string $path, int $option, mixed $value): bool
     {
-        $this->invalidatePath($path);
+        $eventualPath = $this->realpathCache->getEventualPath($path);
 
-        return $this->wrappedStreamHandler->streamMetadata($path, $option, $value);
+        if (!$this->pathFilter->fileMatches($eventualPath)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->streamMetadata($path, $option, $value);
+        }
+
+        if (!$this->asVirtualFilesystem) {
+            // Not in virtual filesystem mode - a change is likely being made (owner, group etc.)
+            // so clear the caches for this path and then forward to the next handler.
+            $this->invalidatePath($path);
+
+            return $this->wrappedStreamHandler->streamMetadata($path, $option, $value);
+        }
+
+        try {
+            switch ($option) {
+                case STREAM_META_TOUCH:
+                    $modificationTime = $value[0] ?? (int) $this->environment->getTime();
+                    $accessTime = $value[1] ?? $modificationTime;
+
+                    if (!$this->statCache->isPathCachedAsExistent($eventualPath)) {
+                        $this->statCache->synthesiseStat(
+                            $eventualPath,
+                            isInclude: false,
+                            isDir: false,
+                            mode: 0666, // TODO: Apply umask?
+                            size: 0
+                        );
+                    }
+
+                    $this->statCache->updateSyntheticStat(
+                        $eventualPath,
+                        isInclude: false,
+                        modificationTime: $modificationTime,
+                        accessTime: $accessTime
+                    );
+
+                    return true;
+                case STREAM_META_OWNER_NAME:
+                    $userId = $this->environment->getUserIdFromName($value);
+
+                    if ($userId === null) {
+                        return false; // Cannot resolve username to an ID.
+                    }
+
+                    $this->statCache->updateSyntheticStat(
+                        $eventualPath,
+                        isInclude: false,
+                        uid: $userId
+                    );
+
+                    return true;
+                case STREAM_META_OWNER:
+                    $this->statCache->updateSyntheticStat(
+                        $eventualPath,
+                        isInclude: false,
+                        uid: $value
+                    );
+
+                    return true;
+                case STREAM_META_GROUP_NAME:
+                    $groupId = $this->environment->getGroupIdFromName($value);
+
+                    if ($groupId === null) {
+                        return false; // Cannot resolve group name to an ID.
+                    }
+
+                    $this->statCache->updateSyntheticStat(
+                        $eventualPath,
+                        isInclude: false,
+                        gid: $groupId
+                    );
+
+                    return true;
+                case STREAM_META_GROUP:
+                    $this->statCache->updateSyntheticStat(
+                        $eventualPath,
+                        isInclude: false,
+                        gid: $value
+                    );
+
+                    return true;
+                case STREAM_META_ACCESS:
+                    $this->statCache->updateSyntheticStat(
+                        $eventualPath,
+                        isInclude: false,
+                        mode: $value
+                    );
+
+                    return true;
+                default:
+                    // Unsupported or unknown metadata.
+                    return false;
+            }
+        } catch (LogicException) {
+            return false;
+        }
     }
 
     /**
@@ -379,22 +464,26 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
         int $options,
         ?string &$openedPath
     ): ?array {
-        $isRead = str_contains($mode, 'r') && !str_contains($mode, '+');
+        $eventualPath = $this->realpathCache->getEventualPath($path);
 
-        if ($isRead) {
-            $effectivePath = $this->getRealpath($path);
-
-            if ($effectivePath === null) {
-                return null;
-            }
-        } else {
-            $effectivePath = $path;
-
-            // File is being written to, so clear cache (e.g. in case it was cached as non-existent).
-            $this->invalidatePath($effectivePath);
+        if (!$this->pathFilter->fileMatches($eventualPath)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->streamOpen(
+                $streamWrapper,
+                $path,
+                $mode,
+                $options,
+                $openedPath
+            );
         }
 
-        return $this->wrappedStreamHandler->streamOpen($streamWrapper, $effectivePath, $mode, $options, $openedPath);
+        return $this->streamOpener->openStream(
+            $streamWrapper,
+            $eventualPath,
+            $mode,
+            $options,
+            $openedPath
+        );
     }
 
     /**
@@ -402,37 +491,14 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function streamStat(StreamWrapperInterface $streamWrapper): array|false
     {
-        // TODO?
-        $path = $streamWrapper->getOpenPath();
-        $realpath = $this->getRealpath($path);
+        $eventualPath = $this->realpathCache->getEventualPath($streamWrapper->getOpenPath());
 
-        if ($realpath === null) {
-            return false;
+        if (!$this->pathFilter->fileMatches($eventualPath)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->streamStat($streamWrapper);
         }
 
-        if ($streamWrapper->isInclude()) {
-            $effectiveStatCache =& $this->statCacheForIncludes;
-        } else {
-            $effectiveStatCache =& $this->statCacheForNonIncludes;
-        }
-
-        if (array_key_exists($realpath, $effectiveStatCache)) {
-            // Stat is already cached: just return it.
-            return $effectiveStatCache[$realpath];
-        }
-
-        $stat = $this->wrappedStreamHandler->streamStat($streamWrapper);
-
-        if ($stat === false) {
-            // Stat failed.
-            return false;
-        }
-
-        // Cache stat for future reference.
-        $effectiveStatCache[$realpath] = $stat;
-        $this->statCacheIsDirty = true;
-
-        return $stat;
+        return $this->statCache->getStreamStat($streamWrapper) ?? false;
     }
 
     /**
@@ -440,6 +506,21 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function unlink(StreamWrapperInterface $streamWrapper, string $path): bool
     {
+        $eventualPath = $this->realpathCache->getEventualPath($path);
+
+        if (!$this->pathFilter->fileMatches($eventualPath)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->unlink($streamWrapper, $path);
+        }
+
+        if ($this->asVirtualFilesystem) {
+            $this->statCache->invalidatePath($eventualPath);
+            $this->contentsCache->invalidatePath($eventualPath);
+            $this->realpathCache->invalidatePath($eventualPath);
+
+            return true;
+        }
+
         $this->invalidatePath($path);
 
         return $this->wrappedStreamHandler->unlink($streamWrapper, $path);
@@ -450,51 +531,20 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
      */
     public function urlStat(string $path, int $flags): array|false
     {
+        $eventualPath = $this->realpathCache->getEventualPath($path);
+
+        if (!$this->pathFilter->fileMatches($eventualPath)) {
+            // Path is excluded from cache, so ignore.
+            return $this->wrappedStreamHandler->urlStat($path, $flags);
+        }
+
         // Use lstat(...) for links but stat() for other files.
-        $isLinkStat = $flags & STREAM_URL_STAT_LINK;
+        $isLinkStat = (bool) ($flags & STREAM_URL_STAT_LINK);
 
-        if ($isLinkStat) {
-            // Link status fetches (lstat()s) stat the symlink file itself (if one exists at the given path)
-            // vs. stat() which stats the eventual file that the symlink points to.
-            $canonicalPath = $this->canonicaliser->canonicalise($path, getcwd());
-
-            $entry = $this->realpathCache[$canonicalPath] ?? null;
-
-            if ($entry !== null) {
-                $exists = $entry['exists'] ?? true;
-
-                if (!$exists) {
-                    return false; // File has been cached as non-existent.
-                }
-
-                $linkPath = $entry['symlink'] ?? $entry['realpath'];
-            } else {
-                $linkPath = $canonicalPath;
-            }
-        } else {
-            $linkPath = $this->getRealpath($path);
-
-            if ($linkPath === null) {
-                return false; // File has been cached as non-existent or is inaccessible.
-            }
-        }
-
-        if (array_key_exists($linkPath, $this->statCacheForNonIncludes)) {
-            // Stat is already cached: just return it.
-            return $this->statCacheForNonIncludes[$linkPath];
-        }
-
-        $stat = $this->wrappedStreamHandler->urlStat($path, $flags);
-
-        if ($stat === false) {
-            // Stat failed.
-            return false;
-        }
-
-        // Cache stat for future reference.
-        $this->statCacheForNonIncludes[$linkPath] = $stat;
-        $this->statCacheIsDirty = true;
-
-        return $stat;
+        return $this->statCache->getPathStat(
+            $path,
+            isLinkStat: $isLinkStat,
+            quiet: (bool) ($flags & STREAM_URL_STAT_QUIET)
+        ) ?? false;
     }
 }

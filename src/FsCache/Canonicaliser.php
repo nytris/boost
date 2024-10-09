@@ -13,6 +13,8 @@ declare(strict_types=1);
 
 namespace Nytris\Boost\FsCache;
 
+use Nytris\Boost\Environment\EnvironmentInterface;
+
 /**
  * Class Canonicaliser.
  *
@@ -20,11 +22,18 @@ namespace Nytris\Boost\FsCache;
  */
 class Canonicaliser implements CanonicaliserInterface
 {
+    public function __construct(
+        private readonly EnvironmentInterface $environment
+    ) {
+    }
+
     /**
      * @inheritDoc
      */
-    public function canonicalise(string $path, string $cwd): string
+    public function canonicalise(string $path, ?string $cwd = null): string
     {
+        $cwd ??= $this->environment->getCwd();
+
         // Resolve same- or parent directory prefix segment.
         if (str_starts_with($path, './') || str_starts_with($path, '../')) {
             $path = $cwd . '/' . $path;
@@ -44,5 +53,13 @@ class Canonicaliser implements CanonicaliserInterface
         } while ($count > 0);
 
         return $path;
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function canonicaliseCacheKey(string $key): string
+    {
+        return hash('sha256', $key);
     }
 }

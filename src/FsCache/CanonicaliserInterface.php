@@ -22,7 +22,14 @@ interface CanonicaliserInterface
 {
     /**
      * Canonicalises the given path, resolving all "./", "../", "//" symbols etc.
+     *
      * Similar to the built-in realpath(...) function, except symlinks are not resolved.
+     * Uses the current working directory for the process if none is specified.
      */
-    public function canonicalise(string $path, string $cwd): string;
+    public function canonicalise(string $path, ?string $cwd = null): string;
+
+    /**
+     * Canonicalises the given cache key, sanitising it for PSR caching.
+     */
+    public function canonicaliseCacheKey(string $key): string;
 }
