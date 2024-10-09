@@ -135,33 +135,35 @@ class Library implements LibraryInterface
             $fileFilter
         );
 
-        $this->codeShift->shift(
-            new FunctionHookShiftSpec(
-                'opcache_invalidate',
-                fn (callable $originalInvalidate) =>
-                    static function (string $filename, bool $force = false) use ($originalInvalidate): bool {
-                        if (ini_get('opcache.enable') === false) {
-                            return false;
+        if (extension_loaded('Zend OPcache')) {
+            $this->codeShift->shift(
+                new FunctionHookShiftSpec(
+                    'opcache_invalidate',
+                    static fn (callable $originalInvalidate) =>
+                        static function (string $filename, bool $force = false) use ($originalInvalidate): bool {
+                            if (ini_get('opcache.enable') === false) {
+                                return false;
+                            }
+
+                            // Work around an issue where OPcache refuses to invalidate files
+                            // served from the `file://` scheme where they do not map to a real path.
+                            $validateTimestamps = ini_set('opcache.validate_timestamps', true);
+                            $revalidateFrequency = ini_set('opcache.revalidate_freq', 0);
+                            $fileUpdateProtection = ini_set('opcache.file_update_protection', 200000);
+                            $originalInvalidate($filename, $force);
+                            // Due to the `file_update_protection` setting assigned above,
+                            // this will not actually cause a recompile of the current contents.
+                            opcache_compile_file($filename);
+                            ini_set('opcache.file_update_protection', $fileUpdateProtection);
+                            ini_set('opcache.validate_timestamps', $validateTimestamps);
+                            ini_set('opcache.revalidate_freq', $revalidateFrequency);
+
+                            return true;
                         }
-
-                        // Work around an issue where OPcache refuses to invalidate files
-                        // served from the `file://` scheme where they do not map to a real path.
-                        $validateTimestamps = ini_set('opcache.validate_timestamps', true);
-                        $revalidateFrequency = ini_set('opcache.revalidate_freq', 0);
-                        $fileUpdateProtection = ini_set('opcache.file_update_protection', 200000);
-                        $originalInvalidate($filename, $force);
-                        // Due to the `file_update_protection` setting assigned above,
-                        // this will not actually cause a recompile of the current contents.
-                        opcache_compile_file($filename);
-                        ini_set('opcache.file_update_protection', $fileUpdateProtection);
-                        ini_set('opcache.validate_timestamps', $validateTimestamps);
-                        ini_set('opcache.revalidate_freq', $revalidateFrequency);
-
-                        return true;
-                    }
-            ),
-            $fileFilter
-        );
+                ),
+                $fileFilter
+            );
+        }
     }
 
     /**
