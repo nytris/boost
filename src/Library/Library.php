@@ -15,6 +15,7 @@ namespace Nytris\Boost\Library;
 
 use Asmblah\PhpCodeShift\CodeShift;
 use Asmblah\PhpCodeShift\CodeShiftInterface;
+use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Asmblah\PhpCodeShift\Shifter\Shift\Shift\FunctionHook\FunctionHookShiftSpec;
 use Nytris\Boost\BoostInterface;
@@ -23,7 +24,6 @@ use Nytris\Boost\Environment\EnvironmentInterface;
 use Nytris\Boost\FsCache\Canonicaliser;
 use Nytris\Boost\FsCache\CanonicaliserInterface;
 use Nytris\Boost\FsCache\Stat\StatCacheInterface;
-use SplObjectStorage;
 
 /**
  * Class Library.
@@ -36,9 +36,9 @@ use SplObjectStorage;
 class Library implements LibraryInterface
 {
     /**
-     * @var SplObjectStorage<BoostInterface, void>
+     * @var BoostInterface[]
      */
-    private SplObjectStorage $boosts;
+    private array $boosts = [];
     private readonly CanonicaliserInterface $canonicaliser;
 
     public function __construct(
@@ -48,7 +48,8 @@ class Library implements LibraryInterface
     ) {
         $this->canonicaliser = $canonicaliser ?? new Canonicaliser($environment);
 
-        $this->boosts = new SplObjectStorage();
+        // Exclude Boost's own source from being hooked to prevent a catch-22.
+        $this->codeShift->deny(new FileFilter(dirname(__DIR__) . '/**'));
     }
 
     /**
@@ -56,11 +57,19 @@ class Library implements LibraryInterface
      */
     public function addBoost(BoostInterface $boost): void
     {
-        $this->boosts->attach($boost);
+        array_unshift($this->boosts, $boost);
 
         if (count($this->boosts) === 1) {
             $this->codeShift->install();
         }
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getBoosts(): array
+    {
+        return $this->boosts;
     }
 
     /**
@@ -85,7 +94,7 @@ class Library implements LibraryInterface
     public function getInMemoryRealpathEntryCache(): array
     {
         return array_reduce(
-            iterator_to_array($this->boosts),
+            $this->boosts,
             static fn (array $carry, BoostInterface $boost) =>
                 array_merge($carry, $boost->getInMemoryRealpathEntryCache()),
             []
@@ -164,6 +173,24 @@ class Library implements LibraryInterface
                 $fileFilter
             );
         }
+
+        $this->codeShift->shift(
+            new FunctionHookShiftSpec(
+                'realpath',
+                fn () => function (string $path): string|false {
+                    foreach ($this->boosts as $boost) {
+                        $realpath = $boost->getRealpath($path);
+
+                        if ($realpath !== null) {
+                            return $realpath;
+                        }
+                    }
+
+                    return false;
+                }
+            ),
+            $fileFilter
+        );
     }
 
     /**
@@ -171,7 +198,11 @@ class Library implements LibraryInterface
      */
     public function removeBoost(BoostInterface $boost): void
     {
-        $this->boosts->detach($boost);
+        $index = array_search($boost, $this->boosts, true);
+
+        if ($index !== false) {
+            array_splice($this->boosts, $index, 1);
+        }
 
         if (count($this->boosts) === 0) {
             $this->codeShift->uninstall();
@@ -187,6 +218,6 @@ class Library implements LibraryInterface
             $boost->uninstall();
         }
 
-        $this->boosts = new SplObjectStorage();
+        $this->boosts = [];
     }
 }

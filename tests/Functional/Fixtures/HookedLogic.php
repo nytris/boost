@@ -32,4 +32,9 @@ class HookedLogic
     {
         return opcache_invalidate($filename, force: $force);
     }
+
+    public function callRealpath(string $path): string|false
+    {
+        return realpath($path);
+    }
 }

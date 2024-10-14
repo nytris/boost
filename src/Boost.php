@@ -155,6 +155,14 @@ class Boost implements BoostInterface
     /**
      * @inheritDoc
      */
+    public function getRealpath(string $path): ?string
+    {
+        return $this->fsCache->getRealpath($path);
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function install(): void
     {
         if ($this->hookBuiltinFunctionsFilter !== null) {

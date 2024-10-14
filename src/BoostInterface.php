@@ -48,6 +48,12 @@ interface BoostInterface
     public function getLibrary(): LibraryInterface;
 
     /**
+     * Fetches the realpath for the given path if cached,
+     * otherwise resolves and caches it.
+     */
+    public function getRealpath(string $path): ?string;
+
+    /**
      * Installs Nytris Boost.
      */
     public function install(): void;

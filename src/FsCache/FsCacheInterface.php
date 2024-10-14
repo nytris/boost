@@ -45,6 +45,12 @@ interface FsCacheInterface
     public function getInMemoryStatEntryCache(): array;
 
     /**
+     * Fetches the realpath for the given path if cached,
+     * otherwise resolves and caches it.
+     */
+    public function getRealpath(string $path): ?string;
+
+    /**
      * Installs the filesystem cache.
      */
     public function install(): void;

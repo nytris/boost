@@ -37,6 +37,13 @@ interface LibraryInterface
     public function addBoost(BoostInterface $boost): void;
 
     /**
+     * Fetches all registered Boost instances for the library installation.
+     *
+     * @return BoostInterface[]
+     */
+    public function getBoosts(): array;
+
+    /**
      * Fetches the Canonicaliser.
      */
     public function getCanonicaliser(): CanonicaliserInterface;

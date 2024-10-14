@@ -71,6 +71,14 @@ class FsCache implements FsCacheInterface
     /**
      * @inheritDoc
      */
+    public function getRealpath(string $path): ?string
+    {
+        return $this->fsCachingStreamHandler->getRealpath($path);
+    }
+
+    /**
+     * @inheritDoc
+     */
     public function install(): void
     {
         $this->originalStreamHandler = StreamWrapperManager::getStreamHandler();
