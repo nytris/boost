@@ -36,7 +36,8 @@ class RealpathTest extends AbstractFilesystemFunctionalTestCase
         // See notes in HookedLogic for why `realpath(...)` cannot be called directly here.
         static::assertSame($targetPath, $hookedLogic->callRealpath($symlinkPath));
         // Delete the file without using unlink(...) as that will be hooked.
-        static::assertNull(shell_exec('rm ' . escapeshellarg($targetPath)));
+        static::assertSame('', exec('rm ' . escapeshellarg($targetPath), result_code: $exitCode));
+        static::assertSame(0, $exitCode);
         static::assertSame(
             $targetPath,
             $hookedLogic->callRealpath($symlinkPath),
@@ -62,7 +63,9 @@ class RealpathTest extends AbstractFilesystemFunctionalTestCase
         file_put_contents($targetPath, 'my second contents'); // Cause cache to be cleared for this path.
         static::assertSame($targetPath, $hookedLogic->callRealpath($symlinkPath2));
         // Delete the file without using unlink(...) as that will be hooked.
-        static::assertNull(shell_exec('rm ' . escapeshellarg($targetPath)));
+        static::assertSame('', exec('rm ' . escapeshellarg($targetPath), result_code: $exitCode));
+        static::assertSame(0, $exitCode);
+
         static::assertSame(
             $targetPath,
             $hookedLogic->callRealpath($symlinkPath2),

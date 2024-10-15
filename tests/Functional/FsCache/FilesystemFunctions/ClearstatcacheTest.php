@@ -32,7 +32,11 @@ class ClearstatcacheTest extends AbstractFilesystemFunctionalTestCase
 
         $stat = stat($path);
         static::assertSame(11, $stat['size']);
-        static::assertNull(shell_exec('echo " [and extra]" >> ' . escapeshellarg($path)));
+        static::assertSame('', exec(
+            'echo " [and extra]" >> ' . escapeshellarg($path),
+            result_code: $exitCode
+        ));
+        static::assertSame(0, $exitCode);
         $stat = stat($path);
         static::assertSame(11, $stat['size'], 'Cached stat with old length should be returned');
         // See notes in HookedLogic for why `clearstatcache(...)` cannot be called directly here.
