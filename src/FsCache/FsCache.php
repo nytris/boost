@@ -19,6 +19,7 @@ use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\StreamWrapperManager;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
+use Nytris\Boost\FsCache\Directory\DirectoryCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -41,6 +42,7 @@ class FsCache implements FsCacheInterface
         private readonly ?CacheItemPoolInterface $statPreloadCachePool,
         private readonly CacheItemPoolInterface $statCachePool,
         private readonly ?ContentsCacheInterface $contentsCache,
+        private readonly ?DirectoryCacheInterface $directoryCache,
         private readonly string $realpathCacheKey,
         private readonly string $statCacheKey,
         /**
@@ -90,6 +92,7 @@ class FsCache implements FsCacheInterface
             $this->statPreloadCachePool,
             $this->statCachePool,
             $this->contentsCache,
+            $this->directoryCache,
             $this->realpathCacheKey,
             $this->statCacheKey,
             $this->cacheNonExistentFiles,

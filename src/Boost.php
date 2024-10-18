@@ -16,6 +16,7 @@ namespace Nytris\Boost;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
+use Nytris\Boost\FsCache\Directory\DirectoryCacheInterface;
 use Nytris\Boost\FsCache\FsCache;
 use Nytris\Boost\FsCache\FsCacheFactory;
 use Nytris\Boost\FsCache\FsCacheInterface;
@@ -80,6 +81,12 @@ class Boost implements BoostInterface
          */
         ?ContentsCacheInterface $contentsCache = null,
         /**
+         * Cache in which to store directory entries (opendir(...), readdir(...) etc.).
+         *
+         * Set to null to disable directory entry caching.
+         */
+        ?DirectoryCacheInterface $directoryCache = null,
+        /**
          * Filter for which file paths to cache in the realpath, stat and contents caches.
          */
         FileFilterInterface $pathFilter = new FileFilter('**'),
@@ -120,6 +127,7 @@ class Boost implements BoostInterface
             $statPreloadCachePool,
             $statCachePool,
             $contentsCache,
+            $directoryCache,
             $realpathCacheKey,
             $statCacheKey,
             $cacheNonExistentFiles,

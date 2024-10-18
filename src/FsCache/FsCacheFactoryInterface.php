@@ -16,6 +16,7 @@ namespace Nytris\Boost\FsCache;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
+use Nytris\Boost\FsCache\Directory\DirectoryCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
 use Psr\Cache\CacheItemPoolInterface;
 
@@ -38,6 +39,7 @@ interface FsCacheFactoryInterface
         ?CacheItemPoolInterface $statPreloadCachePool,
         CacheItemPoolInterface $statCachePool,
         ?ContentsCacheInterface $contentsCache,
+        ?DirectoryCacheInterface $directoryCache,
         string $realpathCacheKey,
         string $statCacheKey,
         /**

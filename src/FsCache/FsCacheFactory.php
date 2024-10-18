@@ -17,6 +17,8 @@ use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
 use Nytris\Boost\Environment\EnvironmentInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
+use Nytris\Boost\FsCache\Directory\DirectoryCacheInterface;
+use Nytris\Boost\FsCache\Directory\Enumerator\DirectoryEnumerator;
 use Nytris\Boost\FsCache\Realpath\RealpathCache;
 use Nytris\Boost\FsCache\Stat\StatCache;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
@@ -49,6 +51,7 @@ class FsCacheFactory implements FsCacheFactoryInterface
         ?CacheItemPoolInterface $statPreloadCachePool,
         CacheItemPoolInterface $statCachePool,
         ?ContentsCacheInterface $contentsCache,
+        ?DirectoryCacheInterface $directoryCache,
         string $realpathCacheKey,
         string $statCacheKey,
         bool $cacheNonExistentFiles,
@@ -74,6 +77,11 @@ class FsCacheFactory implements FsCacheFactoryInterface
             $statCachePool,
             $asVirtualFilesystem
         );
+        $directoryEnumerator = new DirectoryEnumerator(
+            $originalStreamHandler,
+            $directoryCache,
+            $asVirtualFilesystem
+        );
         $streamOpener = new StreamOpener(
             $originalStreamHandler,
             $realpathCache,
@@ -85,6 +93,7 @@ class FsCacheFactory implements FsCacheFactoryInterface
         return new FsCachingStreamHandler(
             $originalStreamHandler,
             $this->environment,
+            $directoryEnumerator,
             $streamOpener,
             $realpathCache,
             $statCache,

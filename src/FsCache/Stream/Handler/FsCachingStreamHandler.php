@@ -20,6 +20,7 @@ use Asmblah\PhpCodeShift\Shifter\Stream\Native\StreamWrapperInterface;
 use LogicException;
 use Nytris\Boost\Environment\EnvironmentInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
+use Nytris\Boost\FsCache\Directory\Enumerator\DirectoryEnumeratorInterface;
 use Nytris\Boost\FsCache\Realpath\RealpathCacheInterface;
 use Nytris\Boost\FsCache\Stat\StatCacheInterface;
 use Nytris\Boost\FsCache\Stream\Opener\StreamOpenerInterface;
@@ -37,6 +38,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
     public function __construct(
         StreamHandlerInterface $wrappedStreamHandler,
         private readonly EnvironmentInterface $environment,
+        private readonly DirectoryEnumeratorInterface $directoryEnumerator,
         private readonly StreamOpenerInterface $streamOpener,
         private readonly RealpathCacheInterface $realpathCache,
         private readonly StatCacheInterface $statCache,
@@ -53,6 +55,14 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
     public function cacheRealpath(string $canonicalPath, string $realpath): void
     {
         $this->realpathCache->cacheRealpath($canonicalPath, $realpath);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function closeDir(StreamWrapperInterface $streamWrapper): bool
+    {
+        return $this->directoryEnumerator->closeDirectory($streamWrapper);
     }
 
     /**
@@ -210,18 +220,7 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
             return $this->wrappedStreamHandler->openDir($streamWrapper, $path, $options);
         }
 
-        if (!$this->asVirtualFilesystem) {
-            // Filesystem cache mode: just forward to the next handler for now.
-            // TODO: Use cache for directory structure too.
-            return $this->wrappedStreamHandler->openDir($streamWrapper, $path, $options);
-        }
-
-        throw new LogicException(
-            sprintf(
-                'Virtual filesystem does not yet support opening directory "%s" for enumeration',
-                $eventualPath
-            )
-        );
+        return $this->directoryEnumerator->openDirectory($streamWrapper, $path, $options);
     }
 
     /**
@@ -238,6 +237,14 @@ class FsCachingStreamHandler extends AbstractStreamHandlerDecorator implements F
     public function persistStatCache(): void
     {
         $this->statCache->persistStatCache();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function readDir(StreamWrapperInterface $streamWrapper): string|false
+    {
+        return $this->directoryEnumerator->readDirectory($streamWrapper) ?? false;
     }
 
     /**
