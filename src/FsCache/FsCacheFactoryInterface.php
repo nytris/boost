@@ -14,7 +14,7 @@ declare(strict_types=1);
 namespace Nytris\Boost\FsCache;
 
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
-use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
+use Asmblah\PhpCodeShift\Shifter\Stream\Handler\Registration\RegistrantInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
 use Psr\Cache\CacheItemPoolInterface;
@@ -30,9 +30,10 @@ interface FsCacheFactoryInterface
 {
     /**
      * Creates a filesystem-caching stream handler.
+     *
+     * @return RegistrantInterface<FsCachingStreamHandlerInterface>
      */
-    public function createStreamHandler(
-        StreamHandlerInterface $originalStreamHandler,
+    public function createStreamHandlerRegistrant(
         ?CacheItemPoolInterface $realpathPreloadCachePool,
         CacheItemPoolInterface $realpathCachePool,
         ?CacheItemPoolInterface $statPreloadCachePool,
@@ -46,5 +47,5 @@ interface FsCacheFactoryInterface
         bool $cacheNonExistentFiles,
         FileFilterInterface $pathFilter,
         bool $asVirtualFilesystem
-    ): FsCachingStreamHandlerInterface;
+    ): RegistrantInterface;
 }

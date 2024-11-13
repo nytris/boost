@@ -14,14 +14,10 @@ declare(strict_types=1);
 namespace Nytris\Boost\FsCache;
 
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
-use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
+use Asmblah\PhpCodeShift\Shifter\Stream\Handler\Registration\RegistrantInterface;
 use Nytris\Boost\Environment\EnvironmentInterface;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
-use Nytris\Boost\FsCache\Realpath\RealpathCache;
-use Nytris\Boost\FsCache\Stat\StatCache;
-use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandler;
-use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
-use Nytris\Boost\FsCache\Stream\Opener\StreamOpener;
+use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerRegistrant;
 use Psr\Cache\CacheItemPoolInterface;
 
 /**
@@ -42,8 +38,7 @@ class FsCacheFactory implements FsCacheFactoryInterface
     /**
      * @inheritDoc
      */
-    public function createStreamHandler(
-        StreamHandlerInterface $originalStreamHandler,
+    public function createStreamHandlerRegistrant(
         ?CacheItemPoolInterface $realpathPreloadCachePool,
         CacheItemPoolInterface $realpathCachePool,
         ?CacheItemPoolInterface $statPreloadCachePool,
@@ -54,43 +49,20 @@ class FsCacheFactory implements FsCacheFactoryInterface
         bool $cacheNonExistentFiles,
         FileFilterInterface $pathFilter,
         bool $asVirtualFilesystem
-    ): FsCachingStreamHandlerInterface {
+    ): RegistrantInterface {
         // TODO: Remove now-unused $realpathCacheKey & $statCacheKey on next breaking 0.x bump.
 
-        $realpathCache = new RealpathCache(
-            $originalStreamHandler,
-            $this->canonicaliser,
-            $realpathPreloadCachePool,
-            $realpathCachePool,
-            $cacheNonExistentFiles,
-            $asVirtualFilesystem
-        );
-        $statCache = new StatCache(
-            $originalStreamHandler,
-            $this->environment,
-            $this->canonicaliser,
-            $realpathCache,
-            $statPreloadCachePool,
-            $statCachePool,
-            $asVirtualFilesystem
-        );
-        $streamOpener = new StreamOpener(
-            $originalStreamHandler,
-            $realpathCache,
-            $statCache,
-            $contentsCache,
-            $asVirtualFilesystem
-        );
-
-        return new FsCachingStreamHandler(
-            $originalStreamHandler,
-            $this->environment,
-            $streamOpener,
-            $realpathCache,
-            $statCache,
-            $contentsCache,
-            $pathFilter,
-            $asVirtualFilesystem
+        return new FsCachingStreamHandlerRegistrant(
+            environment: $this->environment,
+            canonicaliser: $this->canonicaliser,
+            realpathPreloadCachePool: $realpathPreloadCachePool,
+            realpathCachePool: $realpathCachePool,
+            statPreloadCachePool: $statPreloadCachePool,
+            statCachePool: $statCachePool,
+            contentsCache: $contentsCache,
+            cacheNonExistentFiles: $cacheNonExistentFiles,
+            pathFilter: $pathFilter,
+            asVirtualFilesystem: $asVirtualFilesystem
         );
     }
 }

@@ -16,7 +16,7 @@ namespace Nytris\Boost\FsCache;
 use Asmblah\PhpCodeShift\Shifter\Filter\ExceptFilter;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilter;
 use Asmblah\PhpCodeShift\Shifter\Filter\FileFilterInterface;
-use Asmblah\PhpCodeShift\Shifter\Stream\Handler\StreamHandlerInterface;
+use Asmblah\PhpCodeShift\Shifter\Stream\Handler\Registration\RegistrationInterface;
 use Asmblah\PhpCodeShift\Shifter\Stream\StreamWrapperManager;
 use Nytris\Boost\FsCache\Contents\ContentsCacheInterface;
 use Nytris\Boost\FsCache\Stream\Handler\FsCachingStreamHandlerInterface;
@@ -32,7 +32,10 @@ use Psr\Cache\CacheItemPoolInterface;
 class FsCache implements FsCacheInterface
 {
     private ?FsCachingStreamHandlerInterface $fsCachingStreamHandler = null;
-    private ?StreamHandlerInterface $originalStreamHandler;
+    /**
+     * @var RegistrationInterface<FsCachingStreamHandlerInterface>|null
+     */
+    private ?RegistrationInterface $streamHandlerRegistration = null;
 
     public function __construct(
         private readonly FsCacheFactoryInterface $fsCacheFactory,
@@ -81,27 +84,27 @@ class FsCache implements FsCacheInterface
      */
     public function install(): void
     {
-        $this->originalStreamHandler = StreamWrapperManager::getStreamHandler();
-
-        $this->fsCachingStreamHandler = $this->fsCacheFactory->createStreamHandler(
-            $this->originalStreamHandler,
-            $this->realpathPreloadCachePool,
-            $this->realpathCachePool,
-            $this->statPreloadCachePool,
-            $this->statCachePool,
-            $this->contentsCache,
-            $this->realpathCacheKey,
-            $this->statCacheKey,
-            $this->cacheNonExistentFiles,
-            // Exclude Boost's own source from being cached to prevent a catch-22.
-            new ExceptFilter(
-                new FileFilter(dirname(__DIR__) . '/**'),
-                $this->pathFilter
-            ),
-            $this->asVirtualFilesystem
+        $registration = StreamWrapperManager::registerStreamHandler(
+            $this->fsCacheFactory->createStreamHandlerRegistrant(
+                $this->realpathPreloadCachePool,
+                $this->realpathCachePool,
+                $this->statPreloadCachePool,
+                $this->statCachePool,
+                $this->contentsCache,
+                $this->realpathCacheKey,
+                $this->statCacheKey,
+                $this->cacheNonExistentFiles,
+                // Exclude Boost's own source from being cached to prevent a catch-22.
+                new ExceptFilter(
+                    new FileFilter(dirname(__DIR__) . '/**'),
+                    $this->pathFilter
+                ),
+                $this->asVirtualFilesystem
+            )
         );
 
-        StreamWrapperManager::setStreamHandler($this->fsCachingStreamHandler);
+        $this->streamHandlerRegistration = $registration;
+        $this->fsCachingStreamHandler = $registration->getStreamHandler();
     }
 
     /**
@@ -137,7 +140,7 @@ class FsCache implements FsCacheInterface
         $this->persistCaches();
         $this->fsCachingStreamHandler = null;
 
-        StreamWrapperManager::setStreamHandler($this->originalStreamHandler);
-        $this->originalStreamHandler = null;
+        $this->streamHandlerRegistration->unregister();
+        $this->streamHandlerRegistration = null;
     }
 }
