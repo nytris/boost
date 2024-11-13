@@ -37,4 +37,9 @@ class HookedLogic
     {
         return realpath($path);
     }
+
+    public function callTempnam(string $directory, string $prefix): string|false
+    {
+        return tempnam($directory, $prefix);
+    }
 }
